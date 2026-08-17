@@ -17,8 +17,6 @@ import { PoliteSourceClient } from "@ao3-offsite/scraper-core";
 const configuration = z.object({
   COLLECTOR_DATABASE_URL: z.string().url(),
   COLLECTOR_BLOB_DIRECTORY: z.string().default("./data/blobs"),
-  SOURCE_USER_AGENT: z.string().min(10).refine((value) => !value.includes("contact-address-required"), "Configure a real contact address"),
-  SOURCE_INCLUDE_ADULT: z.enum(["true", "false"]).default("true"),
   WORKER_ID: z.string().optional(),
   WORKER_MAXIMUM_FAILURE_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(6),
 }).parse(process.env);
@@ -30,12 +28,14 @@ const processors: WorkProcessorFactory = {
   create(task: ClaimedTask) {
     const fetcher = new PoliteSourceClient({
       origin: task.source.origin,
-      userAgent: configuration.SOURCE_USER_AGENT,
+      userAgent: task.source.userAgent,
       minimumDelayMs: task.source.minimumDelayMs,
+      timeoutMs: task.source.requestTimeoutMs,
+      maximumBodyBytes: task.source.maximumResponseBytes,
       maximumAttempts: 1,
     });
     return new WorkTaskProcessor(
-      { id: task.source.id, origin: task.source.origin, includeAdult: configuration.SOURCE_INCLUDE_ADULT === "true" },
+      { id: task.source.id, origin: task.source.origin, includeAdult: task.source.includeAdult },
       fetcher,
       blobs,
       store,

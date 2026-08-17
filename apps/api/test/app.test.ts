@@ -14,10 +14,24 @@ function services(): ApiServices {
     pauseJob: vi.fn().mockResolvedValue(undefined),
     resumeJob: vi.fn().mockResolvedValue(undefined),
     cancelJob: vi.fn().mockResolvedValue(undefined),
-    listWorks: vi.fn().mockResolvedValue([]),
+    listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getWork: vi.fn().mockResolvedValue(null),
+    getChapter: vi.fn().mockResolvedValue(null),
   };
 }
+
+const policy = {
+  userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+  includeAdult: true,
+  minimumDelayMs: 10000,
+  dailyRequestBudget: 250,
+  dailyByteBudget: 1_073_741_824,
+  requestTimeoutMs: 60_000,
+  maximumResponseBytes: 20_971_520,
+  maximumFailureAttempts: 6,
+  operatingWindowStartHourUtc: null,
+  operatingWindowEndHourUtc: null,
+};
 
 const apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
@@ -48,6 +62,16 @@ describe("Fastify control API", () => {
     expect(huge.statusCode).toBe(400);
   });
 
+  it("paginates and searches the library and exposes chapter routes", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const response = await app.inject({ method: "GET", url: "/api/works?limit=10&offset=20&q=Potter" });
+    expect(response.statusCode).toBe(200);
+    expect(mock.listWorks).toHaveBeenCalledWith(10, 20, "Potter");
+    expect(response.json()).toMatchObject({ total: 0, limit: 10, offset: 20, q: "Potter" });
+    expect((await app.inject({ method: "GET", url: "/api/works/1/chapters/2" })).statusCode).toBe(404);
+    expect(mock.getChapter).toHaveBeenCalledWith(1, 2);
+  });
+
   it("controls jobs and returns not found records", async () => {
     const mock = services(); const app = buildApp(mock); apps.push(app);
     expect((await app.inject({ method: "POST", url: "/api/jobs/7/pause" })).statusCode).toBe(200);
@@ -64,21 +88,19 @@ describe("Fastify control API", () => {
     });
     expect(response.statusCode).toBe(201);
     expect(response.json()).toEqual({ sourceId: 1, paused: true });
-    expect(mock.createSource).toHaveBeenCalledWith({
-      key: "ao3", origin: "https://archiveofourown.org", minimumDelayMs: 10000, dailyRequestBudget: 250,
-    });
+    expect(mock.createSource).toHaveBeenCalledWith({ key: "ao3", origin: "https://archiveofourown.org", ...policy });
   });
 
   it("validates conservative source settings", async () => {
     const mock = services(); const app = buildApp(mock); apps.push(app);
     const tooFast = await app.inject({
       method: "PUT", url: "/api/sources/1",
-      payload: { minimumDelayMs: 500, dailyRequestBudget: 250, paused: false },
+      payload: { ...policy, minimumDelayMs: 500, paused: false },
     });
     expect(tooFast.statusCode).toBe(400);
     const valid = await app.inject({
       method: "PUT", url: "/api/sources/1",
-      payload: { minimumDelayMs: 10000, dailyRequestBudget: 250, paused: true },
+      payload: { ...policy, paused: true },
     });
     expect(valid.statusCode).toBe(200);
   });

@@ -29,7 +29,7 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed UTC daily-budget accounting, database-backed distributed source request slots, byte accounting, retry policy wiring, and the long-running worker process.
 - Completed persistent export-run tracking, automatic selection by exported content hash, snapshot/incremental lineage, and unchanged-work exclusion.
 - Completed the initial Fastify API for health, safe source creation/configuration, ID-range jobs, job controls, and work browsing.
-- Completed the first responsive React/Vite operator interface: overview, job creation/control, work library, and source safety settings.
+- Completed the responsive React/Vite interface: overview, job creation/control, server-paginated list library, offline work/chapter reader, Browser ID, and granular source policy controls.
 - Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 

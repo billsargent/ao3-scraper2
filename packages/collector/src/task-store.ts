@@ -17,8 +17,14 @@ export interface ClaimedTask {
   source: {
     id: number;
     origin: string;
+    userAgent: string;
+    includeAdult: boolean;
     minimumDelayMs: number;
     dailyRequestBudget: number | null;
+    dailyByteBudget: number | null;
+    requestTimeoutMs: number;
+    maximumResponseBytes: number;
+    maximumFailureAttempts: number;
   };
 }
 
@@ -69,8 +75,14 @@ export class TaskLeaseStore {
       attempts: collectionTasks.attempts,
       sourceId: sources.id,
       origin: sources.origin,
+      userAgent: sources.userAgent,
+      includeAdult: sources.includeAdult,
       minimumDelayMs: sources.minimumDelayMs,
       dailyRequestBudget: sources.dailyRequestBudget,
+      dailyByteBudget: sources.dailyByteBudget,
+      requestTimeoutMs: sources.requestTimeoutMs,
+      maximumResponseBytes: sources.maximumResponseBytes,
+      maximumFailureAttempts: sources.maximumFailureAttempts,
     }).from(collectionTasks)
       .innerJoin(collectionJobs, eq(collectionJobs.id, collectionTasks.jobId))
       .innerJoin(sources, eq(sources.id, collectionJobs.sourceId))
@@ -86,8 +98,14 @@ export class TaskLeaseStore {
       source: {
         id: row.sourceId,
         origin: row.origin,
+        userAgent: row.userAgent,
+        includeAdult: row.includeAdult,
         minimumDelayMs: row.minimumDelayMs,
         dailyRequestBudget: row.dailyRequestBudget,
+        dailyByteBudget: row.dailyByteBudget,
+        requestTimeoutMs: row.requestTimeoutMs,
+        maximumResponseBytes: row.maximumResponseBytes,
+        maximumFailureAttempts: row.maximumFailureAttempts,
       },
     }));
   }

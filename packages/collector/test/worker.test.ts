@@ -16,7 +16,12 @@ function task(attempts = 1): ClaimedTask {
     attempts,
     leaseToken: "worker:token",
     leaseExpiresAt: new Date("2026-08-17T12:02:00Z"),
-    source: { id: 3, origin: "https://archiveofourown.org", minimumDelayMs: 10_000, dailyRequestBudget: 250 },
+    source: {
+      id: 3, origin: "https://archiveofourown.org", userAgent: "Mozilla/5.0 Chrome/140.0.0.0",
+      includeAdult: true, minimumDelayMs: 10_000, dailyRequestBudget: 250,
+      dailyByteBudget: 1_073_741_824, requestTimeoutMs: 60_000,
+      maximumResponseBytes: 20_971_520, maximumFailureAttempts: 6,
+    },
   };
 }
 

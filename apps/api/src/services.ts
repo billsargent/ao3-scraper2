@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, or } from "drizzle-orm";
 import { CollectorStore, TaskLeaseStore, planIdRange } from "@ao3-offsite/collector";
 import {
   chapters,
@@ -10,15 +10,25 @@ import {
 } from "@ao3-offsite/database";
 
 export interface SourceUpdate {
+  userAgent: string;
+  includeAdult: boolean;
   minimumDelayMs: number;
   dailyRequestBudget: number | null;
+  dailyByteBudget: number | null;
+  requestTimeoutMs: number;
+  maximumResponseBytes: number;
+  maximumFailureAttempts: number;
+  operatingWindowStartHourUtc: number | null;
+  operatingWindowEndHourUtc: number | null;
   paused: boolean;
 }
+
+export type SourceCreate = Omit<SourceUpdate, "paused"> & { key: string; origin: string };
 
 export interface ApiServices {
   ready(): Promise<boolean>;
   listSources(): Promise<unknown[]>;
-  createSource(input: { key: string; origin: string; minimumDelayMs: number; dailyRequestBudget: number | null }): Promise<number>;
+  createSource(input: SourceCreate): Promise<number>;
   updateSource(sourceId: number, update: SourceUpdate): Promise<boolean>;
   createIdRangeJob(sourceId: number, configuration: { start: number; end: number; batchSize: number }): Promise<number>;
   listJobs(limit: number, offset: number): Promise<unknown[]>;
@@ -26,8 +36,9 @@ export interface ApiServices {
   pauseJob(jobId: number): Promise<void>;
   resumeJob(jobId: number): Promise<void>;
   cancelJob(jobId: number): Promise<void>;
-  listWorks(limit: number, offset: number): Promise<unknown[]>;
+  listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
+  getChapter(workId: number, chapterId: number): Promise<unknown | null>;
 }
 
 export class MariaDbApiServices implements ApiServices {
@@ -48,7 +59,7 @@ export class MariaDbApiServices implements ApiServices {
     return this.db.select().from(sources).orderBy(asc(sources.id));
   }
 
-  async createSource(input: { key: string; origin: string; minimumDelayMs: number; dailyRequestBudget: number | null }): Promise<number> {
+  async createSource(input: SourceCreate): Promise<number> {
     const result = await this.db.insert(sources).values({ ...input, paused: true }).$returningId();
     const id = result[0]?.id;
     if (!id) throw new Error("Source creation did not return an ID");
@@ -82,8 +93,11 @@ export class MariaDbApiServices implements ApiServices {
   resumeJob(jobId: number): Promise<void> { return this.leases.resumeJob(jobId); }
   cancelJob(jobId: number): Promise<void> { return this.leases.cancelJob(jobId); }
 
-  async listWorks(limit: number, offset: number): Promise<unknown[]> {
-    return this.db.select({
+  async listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }> {
+    const filter = query
+      ? or(like(works.title, `%${query}%`), like(works.sourceWorkId, `%${query}%`))
+      : undefined;
+    const base = this.db.select({
       id: works.id,
       sourceWorkId: works.sourceWorkId,
       title: works.title,
@@ -94,7 +108,14 @@ export class MariaDbApiServices implements ApiServices {
       availability: works.availability,
       sourceUpdatedAt: works.sourceUpdatedAt,
       lastSeenAt: works.lastSeenAt,
-    }).from(works).orderBy(desc(works.id)).limit(limit).offset(offset);
+    }).from(works);
+    const items = filter
+      ? await base.where(filter).orderBy(desc(works.id)).limit(limit).offset(offset)
+      : await base.orderBy(desc(works.id)).limit(limit).offset(offset);
+    const totalRows = filter
+      ? await this.db.select({ value: count() }).from(works).where(filter)
+      : await this.db.select({ value: count() }).from(works);
+    return { items, total: totalRows[0]?.value ?? 0 };
   }
 
   async getWork(workId: number): Promise<unknown | null> {
@@ -109,6 +130,22 @@ export class MariaDbApiServices implements ApiServices {
       contentHash: chapters.contentHash,
     }).from(chapters).where(and(eq(chapters.workId, workId))).orderBy(asc(chapters.position));
     return { ...work, chapters: chapterRows };
+  }
+
+  async getChapter(workId: number, chapterId: number): Promise<unknown | null> {
+    return (await this.db.select({
+      id: chapters.id,
+      workId: chapters.workId,
+      sourceChapterId: chapters.sourceChapterId,
+      position: chapters.position,
+      title: chapters.title,
+      summaryHtml: chapters.summaryHtml,
+      notesHtml: chapters.notesHtml,
+      contentHtml: chapters.contentHtml,
+      endNotesHtml: chapters.endNotesHtml,
+      publishedAt: chapters.publishedAt,
+      wordCount: chapters.wordCount,
+    }).from(chapters).where(and(eq(chapters.id, chapterId), eq(chapters.workId, workId))).limit(1))[0] ?? null;
   }
 }
 

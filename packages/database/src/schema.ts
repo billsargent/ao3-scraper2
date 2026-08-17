@@ -25,12 +25,22 @@ const timestamps = {
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`).$onUpdateFn(() => new Date()),
 };
 
+export const STANDARD_CHROME_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+
 export const sources = mysqlTable("sources", {
   id: id(),
   key: varchar("source_key", { length: 100 }).notNull(),
   origin: varchar("origin", { length: 500 }).notNull(),
+  userAgent: varchar("user_agent", { length: 1000 }).notNull().default(STANDARD_CHROME_USER_AGENT),
+  includeAdult: boolean("include_adult").notNull().default(true),
   minimumDelayMs: int("minimum_delay_ms", { unsigned: true }).notNull().default(10000),
   dailyRequestBudget: int("daily_request_budget", { unsigned: true }).default(250),
+  dailyByteBudget: bigint("daily_byte_budget", { mode: "number", unsigned: true }).default(1073741824),
+  requestTimeoutMs: int("request_timeout_ms", { unsigned: true }).notNull().default(60000),
+  maximumResponseBytes: bigint("maximum_response_bytes", { mode: "number", unsigned: true }).notNull().default(20971520),
+  maximumFailureAttempts: int("maximum_failure_attempts", { unsigned: true }).notNull().default(6),
+  operatingWindowStartHourUtc: int("operating_window_start_hour_utc", { unsigned: true }),
+  operatingWindowEndHourUtc: int("operating_window_end_hour_utc", { unsigned: true }),
   paused: boolean("paused").notNull().default(false),
   nextRequestAt: datetime("next_request_at", { mode: "date", fsp: 3 }),
   ...timestamps,

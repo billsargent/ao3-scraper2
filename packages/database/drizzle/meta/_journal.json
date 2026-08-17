@@ -36,6 +36,13 @@
       "when": 1786986772916,
       "tag": "0004_bright_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1786990452412,
+      "tag": "0005_living_may_parker",
+      "breakpoints": true
     }
   ]
 }

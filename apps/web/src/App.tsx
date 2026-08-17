@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type CollectionJob, type Source } from "./api.js";
 
@@ -47,7 +47,7 @@ export default function App() {
 
 function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavigate: (page: Page) => void }) {
   const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 5_000 });
-  const works = useQuery({ queryKey: ["works"], queryFn: api.works, refetchInterval: 10_000 });
+  const works = useQuery({ queryKey: ["works"], queryFn: () => api.works(), refetchInterval: 10_000 });
   const list = jobs.data?.jobs ?? [];
   const workList = works.data?.works ?? [];
   const active = list.filter((job) => ["queued", "running"].includes(job.status));
@@ -121,33 +121,89 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
 }
 
 function Library() {
-  const works = useQuery({ queryKey: ["works"], queryFn: api.works, refetchInterval: 10_000 });
+  const pageSize = 25;
+  const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("");
-  const list = useMemo(() => (works.data?.works ?? []).filter((work) => work.title.toLowerCase().includes(filter.toLowerCase()) || work.sourceWorkId.includes(filter)), [works.data, filter]);
+  const [selectedWork, setSelectedWork] = useState<number | null>(null);
+  const works = useQuery({
+    queryKey: ["works", page, filter],
+    queryFn: () => api.works(page, pageSize, filter),
+    placeholderData: (previous) => previous,
+  });
+  const list = works.data?.works ?? [];
+  const total = works.data?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
   return <>
-    <div className="page-actions"><div><h2>Collected works</h2><p>Normalized records backed by immutable raw captures.</p></div><div className="search"><Icon path="m21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /><input aria-label="Filter works" placeholder="Filter title or source ID" value={filter} onChange={(e) => setFilter(e.target.value)} /></div></div>
-    <Panel title={`${list.length} works in view`}>
-      {list.length ? <div className="work-grid">{list.map((work) => <article className="work-card" key={work.id}><div className="work-card-top"><span className="source-id">AO3 #{work.sourceWorkId}</span><Status status={work.availability} /></div><h3>{work.title}</h3><div className="work-meta"><span>{compactNumber(work.words ?? 0)} words</span><span>{work.expectedChapters ?? "?"} ch.</span><span>{work.languageCode.toUpperCase()}</span></div><div className="work-foot"><span>{work.complete ? "Complete" : "In progress"}</span><span>Seen {formatDate(work.lastSeenAt)}</span></div></article>)}</div> : <Empty title="No matching works" text="Collected works will appear here after a worker succeeds." />}
+    <div className="page-actions"><div><h2>Collected works</h2><p>Normalized records backed by immutable raw captures.</p></div><div className="search"><Icon path="m21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /><input aria-label="Search works" placeholder="Search title or source ID" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0); }} /></div></div>
+    <Panel title={`${formatNumber(total)} collected works`}>
+      {list.length ? <>
+        <div className="table-wrap work-list"><table><thead><tr><th>Work title</th><th>Source ID</th><th>Words</th><th>Chapters</th><th>Status</th><th>Updated</th><th><span className="sr-only">Open</span></th></tr></thead><tbody>
+          {list.map((work) => <tr key={work.id}><td className="title-cell"><b>{work.title || "Untitled work"}</b><small>{work.complete ? "Complete" : "In progress"} · {work.languageCode.toUpperCase()}</small></td><td><span className="source-id">AO3 #{work.sourceWorkId}</span></td><td>{formatNumber(work.words ?? 0)}</td><td>{work.expectedChapters ?? "?"}</td><td><Status status={work.availability} /></td><td>{work.sourceUpdatedAt ? formatDate(work.sourceUpdatedAt) : "—"}</td><td><button className="read-button" onClick={() => setSelectedWork(work.id)}>View</button></td></tr>)}
+        </tbody></table></div>
+        <div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page <b>{page + 1}</b> of {pages}</span><button disabled={page + 1 >= pages} onClick={() => setPage((value) => value + 1)}>Next →</button></div>
+      </> : <Empty title="No matching works" text="Collected works will appear here after a worker succeeds." />}
     </Panel>
+    {selectedWork !== null && <WorkReader workId={selectedWork} onClose={() => setSelectedWork(null)} />}
   </>;
+}
+
+function WorkReader({ workId, onClose }: { workId: number; onClose: () => void }) {
+  const work = useQuery({ queryKey: ["work", workId], queryFn: () => api.work(workId) });
+  const [chapterId, setChapterId] = useState<number | null>(null);
+  useEffect(() => {
+    const first = work.data?.work.chapters[0]?.id;
+    if (first) setChapterId(first);
+  }, [work.data?.work.id]);
+  const chapter = useQuery({
+    queryKey: ["chapter", workId, chapterId],
+    queryFn: () => api.chapter(workId, chapterId!),
+    enabled: chapterId !== null,
+  });
+  const detail = work.data?.work;
+  return <div className="reader-backdrop"><section className="reader" role="dialog" aria-modal="true" aria-label={detail?.title ?? "Work reader"}>
+    <header><div><p className="eyebrow accent">OFFLINE ARCHIVE READER</p><h2>{detail?.title ?? "Loading work…"}</h2>{detail && <p>AO3 #{detail.sourceWorkId} · {formatNumber(detail.words ?? 0)} words · {detail.chapters.length} chapters</p>}</div><button className="icon-button" aria-label="Close reader" onClick={onClose}>×</button></header>
+    {detail && <div className="reader-layout"><aside><div className="reader-summary"><b>Summary</b><p>{htmlToText(detail.summaryHtml) || "No summary."}</p></div><b className="chapter-label">Chapters</b><div className="chapter-nav">{detail.chapters.map((item) => <button className={chapterId === item.id ? "active" : ""} key={item.id} onClick={() => setChapterId(item.id)}><span>{item.position}</span><div>{item.title || `Chapter ${item.position}`}<small>{item.wordCount ? `${formatNumber(item.wordCount)} words` : "Word count unavailable"}</small></div></button>)}</div></aside><article className="chapter-reader">{chapter.isLoading ? <p className="muted">Loading chapter…</p> : chapter.data ? <><p className="eyebrow">CHAPTER {chapter.data.chapter.position}</p><h3>{chapter.data.chapter.title || detail.title}</h3>{htmlToText(chapter.data.chapter.notesHtml) && <div className="reader-note">{htmlToText(chapter.data.chapter.notesHtml)}</div>}<div className="chapter-text">{htmlToParagraphs(chapter.data.chapter.contentHtml)}</div>{htmlToText(chapter.data.chapter.endNotesHtml) && <div className="reader-note end"><b>End notes</b>{htmlToText(chapter.data.chapter.endNotesHtml)}</div>}</> : <p>Choose a chapter.</p>}</article></div>}
+  </section></div>;
 }
 
 function Settings({ source }: { source: Source | undefined }) {
   const client = useQueryClient();
+  const [userAgent, setUserAgent] = useState(source?.userAgent ?? "");
+  const [includeAdult, setIncludeAdult] = useState(source?.includeAdult ?? true);
   const [delay, setDelay] = useState(source?.minimumDelayMs ?? 10000);
   const [budget, setBudget] = useState(source?.dailyRequestBudget ?? 250);
+  const [byteBudgetMb, setByteBudgetMb] = useState(Math.round((source?.dailyByteBudget ?? 1_073_741_824) / 1_048_576));
+  const [timeoutSeconds, setTimeoutSeconds] = useState((source?.requestTimeoutMs ?? 60_000) / 1000);
+  const [maxResponseMb, setMaxResponseMb] = useState(Math.round((source?.maximumResponseBytes ?? 20_971_520) / 1_048_576));
+  const [attempts, setAttempts] = useState(source?.maximumFailureAttempts ?? 6);
+  const [windowEnabled, setWindowEnabled] = useState(source?.operatingWindowStartHourUtc !== null);
+  const [windowStart, setWindowStart] = useState(source?.operatingWindowStartHourUtc ?? 0);
+  const [windowEnd, setWindowEnd] = useState(source?.operatingWindowEndHourUtc ?? 6);
   useEffect(() => {
-    if (source) {
-      setDelay(source.minimumDelayMs);
-      setBudget(source.dailyRequestBudget ?? 250);
-    }
-  }, [source?.id, source?.minimumDelayMs, source?.dailyRequestBudget]);
-  const update = useMutation({ mutationFn: (paused: boolean) => source ? api.updateSource(source.id, { minimumDelayMs: delay, dailyRequestBudget: budget, paused }) : Promise.reject(new Error("No source")), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
+    if (!source) return;
+    setUserAgent(source.userAgent); setIncludeAdult(source.includeAdult); setDelay(source.minimumDelayMs);
+    setBudget(source.dailyRequestBudget ?? 250); setByteBudgetMb(Math.round((source.dailyByteBudget ?? 1_073_741_824) / 1_048_576));
+    setTimeoutSeconds(source.requestTimeoutMs / 1000); setMaxResponseMb(Math.round(source.maximumResponseBytes / 1_048_576));
+    setAttempts(source.maximumFailureAttempts); setWindowEnabled(source.operatingWindowStartHourUtc !== null);
+    setWindowStart(source.operatingWindowStartHourUtc ?? 0); setWindowEnd(source.operatingWindowEndHourUtc ?? 6);
+  }, [source]);
+  const update = useMutation({ mutationFn: (paused: boolean) => source ? api.updateSource(source.id, {
+    userAgent, includeAdult, minimumDelayMs: delay, dailyRequestBudget: budget,
+    dailyByteBudget: byteBudgetMb * 1_048_576, requestTimeoutMs: timeoutSeconds * 1000,
+    maximumResponseBytes: maxResponseMb * 1_048_576, maximumFailureAttempts: attempts,
+    operatingWindowStartHourUtc: windowEnabled ? windowStart : null,
+    operatingWindowEndHourUtc: windowEnabled ? windowEnd : null, paused,
+  }) : Promise.reject(new Error("No source")), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
   const create = useMutation({ mutationFn: () => api.createSource({ key: "ao3", origin: "https://archiveofourown.org" }), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
-  if (!source) return <Panel title="Create source"><div className="settings-empty"><div className="large-icon"><Icon path="M12 3v18m9-9H3" /></div><h2>No collection source configured</h2><p>AO3 will be created paused with a 10-second delay and 250-request daily budget.</p><button className="primary" onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create paused AO3 source"}</button></div></Panel>;
+  if (!source) return <Panel title="Create source"><div className="settings-empty"><div className="large-icon"><Icon path="M12 3v18m9-9H3" /></div><h2>No collection source configured</h2><p>AO3 will be created paused with a standard Chrome browser identity, 10-second delay, and 250-request daily budget.</p><button className="primary" onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create paused AO3 source"}</button></div></Panel>;
   return <div className="settings-layout">
-    <Panel title="Source policy"><div className="settings-form"><label>Source origin<input value={source.origin} disabled /></label><div className="form-grid"><label>Minimum delay (milliseconds)<input type="number" min="2000" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label>UTC daily request budget<input type="number" min="1" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label></div><div className="policy-callout"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><p><b>Safety boundary</b><span>Settings are enforced transactionally across every worker. The API will not accept a delay below two seconds.</span></p></div><div className="settings-actions"><button className="secondary" onClick={() => update.mutate(true)}>Save & pause</button><button className={source.paused ? "primary" : "danger-button"} onClick={() => update.mutate(!source.paused)}>{source.paused ? "Enable collection" : "Pause immediately"}</button></div>{update.error && <p className="form-error">{update.error.message}</p>}</div></Panel>
-    <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source key</dt><dd>{source.key}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>Allowed</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
+    <Panel title="Source policy"><div className="settings-form">
+      <div className="settings-section"><h3>Browser identity</h3><label>Browser ID / User-Agent<textarea rows={3} value={userAgent} onChange={(e) => setUserAgent(e.target.value)} /><small>Defaults to a standard Chrome browser identity. You can append a project contact identifier if desired.</small></label><label className="toggle-row"><input type="checkbox" checked={includeAdult} onChange={(e) => setIncludeAdult(e.target.checked)} /><span><b>Accept adult-content interstitials</b><small>Allows collection of all publicly accessible ratings.</small></span></label></div>
+      <div className="settings-section"><h3>Request pacing and budgets</h3><div className="form-grid"><label>Minimum delay (ms)<input type="number" min="2000" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label>Daily requests<input type="number" min="1" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label><label>Daily bandwidth (MB)<input type="number" min="1" value={byteBudgetMb} onChange={(e) => setByteBudgetMb(Number(e.target.value))} /></label><label>Maximum response (MB)<input type="number" min="1" max="100" value={maxResponseMb} onChange={(e) => setMaxResponseMb(Number(e.target.value))} /></label></div></div>
+      <div className="settings-section"><h3>Failures and schedule</h3><div className="form-grid"><label>Request timeout (seconds)<input type="number" min="5" max="300" value={timeoutSeconds} onChange={(e) => setTimeoutSeconds(Number(e.target.value))} /></label><label>Maximum failure attempts<input type="number" min="1" max="20" value={attempts} onChange={(e) => setAttempts(Number(e.target.value))} /></label></div><label className="toggle-row"><input type="checkbox" checked={windowEnabled} onChange={(e) => setWindowEnabled(e.target.checked)} /><span><b>Restrict collection to a UTC window</b><small>Useful for operating only during agreed low-traffic hours.</small></span></label>{windowEnabled && <div className="form-grid"><label>Start hour UTC<input type="number" min="0" max="23" value={windowStart} onChange={(e) => setWindowStart(Number(e.target.value))} /></label><label>End hour UTC<input type="number" min="0" max="23" value={windowEnd} onChange={(e) => setWindowEnd(Number(e.target.value))} /></label></div>}</div>
+      <div className="policy-callout"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><p><b>Distributed safety boundary</b><span>Delay, request, bandwidth, and schedule controls are enforced transactionally across every worker.</span></p></div><div className="settings-actions"><button className="secondary" onClick={() => update.mutate(true)}>Save & pause</button><button className={source.paused ? "primary" : "danger-button"} onClick={() => update.mutate(!source.paused)}>{source.paused ? "Enable collection" : "Pause immediately"}</button></div>{update.error && <p className="form-error">{update.error.message}</p>}
+    </div></Panel>
+    <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source</dt><dd>{source.origin}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>{source.includeAdult ? "Allowed" : "Excluded"}</dd></div><div><dt>Daily bandwidth</dt><dd>{compactNumber(source.dailyByteBudget ?? 0)}B</dd></div><div><dt>Operating window</dt><dd>{source.operatingWindowStartHourUtc === null ? "Any time" : `${source.operatingWindowStartHourUtc}:00–${source.operatingWindowEndHourUtc}:00 UTC`}</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
   </div>;
 }
 
@@ -166,3 +222,14 @@ const compactNumber = (value: number) => new Intl.NumberFormat(undefined, { nota
 const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
 const formatDateTime = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 function duration(ms: number) { const minutes = Math.ceil(ms / 60000); return minutes < 60 ? `${minutes} min minimum` : `${Math.floor(minutes / 60)}h ${minutes % 60}m minimum`; }
+function htmlToText(html: string) {
+  if (!html) return "";
+  return new DOMParser().parseFromString(html, "text/html").body.textContent?.replace(/\s+/g, " ").trim() ?? "";
+}
+function htmlToParagraphs(html: string) {
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const blocks = [...document.body.querySelectorAll("p, li, blockquote, h1, h2, h3, h4")]
+    .map((node) => node.textContent?.replace(/\s+/g, " ").trim()).filter(Boolean) as string[];
+  const paragraphs = blocks.length ? blocks : [document.body.textContent?.trim() ?? ""];
+  return paragraphs.filter(Boolean).map((text, index) => <p key={`${index}-${text.slice(0, 20)}`}>{text}</p>);
+}

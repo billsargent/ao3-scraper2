@@ -14,7 +14,7 @@ npm install
 npm run db:migrate
 ```
 
-Replace `SOURCE_USER_AGENT` in `.env` with a real project contact address before starting a worker against AO3. The worker refuses the placeholder value.
+Browser identity and source policy are stored in MariaDB and edited through Source Settings. A new source defaults to a standard Chrome User-Agent, accepts adult-content interstitials, and starts paused. You can customize the Browser ID/User-Agent and append a project contact identifier before routine collection.
 
 ## Load an existing offline package (optional)
 
@@ -54,9 +54,10 @@ Open `http://localhost:5173`. Vite proxies browser requests under `/api` to `htt
 - Overview metrics and safety state
 - Durable ID-range job creation
 - Job progress and pause/resume/cancel controls
-- Collected-work browsing and filtering
+- Server-paginated collected-work list and title/source-ID search
+- Offline work/chapter reader using plain text extracted from stored HTML
 - Paused-by-default source creation
-- Delay, budget, and emergency pause settings
+- Browser ID/User-Agent, adult-content, delay, request/byte budget, timeout, response-size, retry, UTC-window, and emergency-pause settings
 
 The API and UI are unauthenticated in this milestone. Keep both bound to localhost or a trusted private network.
 
@@ -75,7 +76,20 @@ curl -X POST http://127.0.0.1:3001/api/sources \
   }'
 ```
 
-The response contains `sourceId`. List sources:
+The response contains `sourceId`. The Source Settings UI provides granular controls for:
+
+- Browser ID / User-Agent
+- Adult-content interstitial acceptance
+- Minimum delay between requests
+- UTC daily request count
+- UTC daily response-byte budget
+- Per-response size limit
+- Request timeout
+- Maximum failure attempts
+- Optional UTC operating window, including overnight windows
+- Immediate source pause
+
+All pacing, budget, and operating-window checks are transactionally shared by every worker. List sources:
 
 ```bash
 curl http://127.0.0.1:3001/api/sources

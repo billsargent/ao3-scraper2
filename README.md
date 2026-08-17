@@ -27,11 +27,12 @@ Implemented:
 - Gzip content-addressed raw HTML storage
 - Streaming ID-range planner and end-to-end work task processor
 - Atomic MariaDB task claiming, leases, heartbeats, expired-lease recovery, and job pause/resume/cancel
-- Database-backed distributed request slots, UTC daily budgets, and response-byte accounting
+- Database-backed distributed request slots, UTC request/byte budgets, operating windows, and response accounting
+- Configurable Browser ID/User-Agent with a standard Chrome default, adult-content policy, timeout, response-size, and retry controls
 - Continuously running worker with graceful shutdown and bounded retry scheduling
 - MariaDB-to-transfer-package exporter with snapshot/incremental lineage and exported-hash tracking
 - Initial Fastify control API for sources, jobs, controls, health, and work browsing
-- Responsive React/Vite operator interface with dashboard, jobs, library, and safety settings
+- Responsive React/Vite operator interface with dashboard, jobs, paginated list library, offline chapter reader, and granular source policy
 - Limited live validation dataset from the first Harry Potter search-results page
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests

@@ -73,7 +73,10 @@ integration("CollectorStore with MariaDB", () => {
     }
     await db.update(sources).set({
       paused: false, origin: "https://archiveofourown.org", minimumDelayMs: 5000,
-      dailyRequestBudget: 250, nextRequestAt: null,
+      dailyRequestBudget: 250, dailyByteBudget: 1_073_741_824, nextRequestAt: null,
+      operatingWindowStartHourUtc: null, operatingWindowEndHourUtc: null,
+      includeAdult: true, requestTimeoutMs: 60_000, maximumResponseBytes: 20_971_520,
+      maximumFailureAttempts: 6,
     })
       .where(eq(sources.id, sourceId));
   });
@@ -107,6 +110,14 @@ integration("CollectorStore with MariaDB", () => {
     await budgets.recordResponseBytes(sourceId, 200, start);
     const usage = (await db.select().from(sourceDailyUsage).where(eq(sourceDailyUsage.sourceId, sourceId)))[0]!;
     expect(usage).toMatchObject({ requestCount: 2, responseBytes: 300 });
+    await db.update(sources).set({ dailyRequestBudget: 100, dailyByteBudget: 250, nextRequestAt: null }).where(eq(sources.id, sourceId));
+    expect(await budgets.reserveRequest(sourceId, new Date(start.getTime() + 30_000)))
+      .toMatchObject({ granted: false, reason: "daily_byte_budget" });
+    await db.update(sources).set({
+      dailyByteBudget: 1_000_000, operatingWindowStartHourUtc: 22, operatingWindowEndHourUtc: 6,
+    }).where(eq(sources.id, sourceId));
+    expect(await budgets.reserveRequest(sourceId, new Date("2026-08-17T12:00:00.000Z")))
+      .toMatchObject({ granted: false, reason: "operating_window", retryAt: new Date("2026-08-17T22:00:00.000Z") });
 
     await db.update(sources).set({ paused: true }).where(eq(sources.id, sourceId));
     expect(await budgets.reserveRequest(sourceId, new Date("2026-08-18T00:00:00.000Z"))).toMatchObject({ granted: false, reason: "paused" });

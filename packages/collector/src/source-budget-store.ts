@@ -3,7 +3,7 @@ import { sourceDailyUsage, sources, type CollectorDatabase } from "@ao3-offsite/
 
 export type RequestReservation =
   | { granted: true; reservedAt: Date; nextRequestAt: Date; remainingToday: number | null }
-  | { granted: false; reason: "paused" | "delay" | "daily_budget"; retryAt: Date | null };
+  | { granted: false; reason: "paused" | "delay" | "daily_budget" | "daily_byte_budget" | "operating_window"; retryAt: Date | null };
 
 export class SourceBudgetStore {
   constructor(private readonly db: CollectorDatabase) {}
@@ -13,6 +13,8 @@ export class SourceBudgetStore {
       const source = (await tx.select().from(sources).where(eq(sources.id, sourceId)).limit(1).for("update"))[0];
       if (!source) throw new Error(`Unknown source ${sourceId}`);
       if (source.paused) return { granted: false, reason: "paused", retryAt: null };
+      const windowRetryAt = nextOperatingWindow(source.operatingWindowStartHourUtc, source.operatingWindowEndHourUtc, now);
+      if (windowRetryAt) return { granted: false, reason: "operating_window", retryAt: windowRetryAt };
 
       const usageDate = utcDate(now);
       await tx.insert(sourceDailyUsage).values({ sourceId, usageDate, requestCount: 0, responseBytes: 0 })
@@ -23,6 +25,9 @@ export class SourceBudgetStore {
 
       if (source.dailyRequestBudget !== null && usage.requestCount >= source.dailyRequestBudget) {
         return { granted: false, reason: "daily_budget", retryAt: nextUtcDay(now) };
+      }
+      if (source.dailyByteBudget !== null && usage.responseBytes >= source.dailyByteBudget) {
+        return { granted: false, reason: "daily_byte_budget", retryAt: nextUtcDay(now) };
       }
       if (source.nextRequestAt && source.nextRequestAt.getTime() > now.getTime()) {
         return { granted: false, reason: "delay", retryAt: source.nextRequestAt };
@@ -56,4 +61,15 @@ export function utcDate(value: Date): string {
 
 function nextUtcDay(value: Date): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate() + 1));
+}
+
+function nextOperatingWindow(start: number | null, end: number | null, now: Date): Date | null {
+  if (start === null || end === null || start === end) return null;
+  const hour = now.getUTCHours();
+  const allowed = start < end ? hour >= start && hour < end : hour >= start || hour < end;
+  if (allowed) return null;
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), start));
+  return todayStart.getTime() > now.getTime()
+    ? todayStart
+    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, start));
 }
