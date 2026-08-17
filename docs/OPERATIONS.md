@@ -28,17 +28,25 @@ The loader creates the package source paused when needed and transactionally ups
 
 ## Start the API
 
+For localhost-only development, authentication is optional. For any shared/private-network access, generate a token first:
+
+```bash
+openssl rand -hex 32
+```
+
+Set the result as `API_TOKEN` in your environment, then start:
+
 ```bash
 npm run api:start
 ```
 
-The default API address is `http://127.0.0.1:3001`. It is intentionally bound to localhost and does not yet have login authentication.
+The default API address is `http://127.0.0.1:3001`. When `API_TOKEN` is set, every `/api` route except liveness requires `Authorization: Bearer <token>`. The Vite interface displays an unlock screen and stores the token in that browser's local storage.
 
-Check health:
+Check health. Add `-H "Authorization: Bearer $API_TOKEN"` to protected curl commands when authentication is enabled:
 
 ```bash
 curl http://127.0.0.1:3001/api/health/live
-curl http://127.0.0.1:3001/api/health/ready
+curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3001/api/health/ready
 ```
 
 ## Start the Vite operator interface
@@ -196,7 +204,7 @@ docker compose down
 
 ## Current limitations
 
-- API authentication is not implemented; keep it on localhost/private networking.
+- Authentication is a single operator bearer token, not multi-user accounts or role-based access.
 - Server-Sent Events are not implemented yet.
 - Large range discovery still happens during the API request, capped at 10,000 IDs.
 - Export creation is implemented as a library and integration-tested but is not exposed through an asynchronous API endpoint yet.

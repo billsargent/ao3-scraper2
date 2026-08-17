@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type CollectionJob, type Source } from "./api.js";
+import { ApiError, api, setApiToken, type CollectionJob, type Source } from "./api.js";
 
 type Page = "dashboard" | "jobs" | "library" | "settings";
 
@@ -13,9 +13,13 @@ const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
-  const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 15_000, retry: 1 });
+  const [tokenVersion, setTokenVersion] = useState(0);
+  const health = useQuery({ queryKey: ["health", tokenVersion], queryFn: api.health, refetchInterval: 15_000, retry: 1 });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 10_000 });
   const source = sources.data?.sources.find((candidate) => candidate.key === "ao3") ?? sources.data?.sources[0];
+  if (health.error instanceof ApiError && health.error.status === 401) {
+    return <Unlock onUnlock={(token) => { setApiToken(token); setTokenVersion((value) => value + 1); void health.refetch(); }} />;
+  }
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -205,6 +209,11 @@ function Settings({ source }: { source: Source | undefined }) {
     </div></Panel>
     <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source</dt><dd>{source.origin}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>{source.includeAdult ? "Allowed" : "Excluded"}</dd></div><div><dt>Daily bandwidth</dt><dd>{compactNumber(source.dailyByteBudget ?? 0)}B</dd></div><div><dt>Operating window</dt><dd>{source.operatingWindowStartHourUtc === null ? "Any time" : `${source.operatingWindowStartHourUtc}:00–${source.operatingWindowEndHourUtc}:00 UTC`}</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
   </div>;
+}
+
+function Unlock({ onUnlock }: { onUnlock: (token: string) => void }) {
+  const [token, setToken] = useState("");
+  return <main className="unlock-screen"><form onSubmit={(event) => { event.preventDefault(); onUnlock(token.trim()); }}><div className="brand-mark">AR</div><p className="eyebrow accent">ARCHIVE RELAY</p><h1>Unlock operator access</h1><p>Enter the API token configured on this private collector.</p><label>API token<input autoFocus type="password" minLength={32} value={token} onChange={(event) => setToken(event.target.value)} /></label><button className="primary" disabled={token.trim().length < 32}>Unlock archive</button><small>The token remains in this browser's local storage.</small></form></main>;
 }
 
 function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) { return <section className="panel"><div className="panel-head"><h2>{title}</h2>{action}</div>{children}</section>; }

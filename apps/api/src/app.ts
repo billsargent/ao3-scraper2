@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { STANDARD_CHROME_USER_AGENT } from "@ao3-offsite/database";
@@ -43,8 +44,18 @@ const SourceCreateBody = z.object({
 }).and(SourcePolicy);
 const SourceBody = SourcePolicy.and(z.object({ paused: z.boolean() }));
 
-export function buildApp(services: ApiServices): FastifyInstance {
+export interface ApiSecurityOptions { apiToken?: string }
+
+export function buildApp(services: ApiServices, security: ApiSecurityOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
+  app.addHook("onRequest", async (request, reply) => {
+    if (!security.apiToken || request.url === "/api/health/live") return;
+    const authorization = request.headers.authorization;
+    const supplied = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+    if (!safeTokenEqual(supplied, security.apiToken)) {
+      return reply.status(401).send({ error: "unauthorized" });
+    }
+  });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof ZodError) {
       void reply.status(400).send({ error: "validation_error", issues: error.issues });
@@ -116,4 +127,10 @@ export function buildApp(services: ApiServices): FastifyInstance {
     return chapter ? { chapter } : reply.status(404).send({ error: "not_found" });
   });
   return app;
+}
+
+function safeTokenEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }

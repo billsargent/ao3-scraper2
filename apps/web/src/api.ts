@@ -71,14 +71,27 @@ export interface ChapterDetail extends ChapterSummary {
   publishedAt: string | null;
 }
 
+const TOKEN_KEY = "archive-relay-api-token";
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); this.name = "ApiError"; }
+}
+
+export function getApiToken(): string { return localStorage.getItem(TOKEN_KEY) ?? ""; }
+export function setApiToken(token: string): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = getApiToken();
   const response = await fetch(path, {
     ...options,
-    headers: { "content-type": "application/json", ...options?.headers },
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...options?.headers },
   });
   if (!response.ok) {
     const data = await response.json().catch(() => null) as { error?: string } | null;
-    throw new Error(data?.error ?? `Request failed with HTTP ${response.status}`);
+    throw new ApiError(data?.error ?? `Request failed with HTTP ${response.status}`, response.status);
   }
   return response.json() as Promise<T>;
 }

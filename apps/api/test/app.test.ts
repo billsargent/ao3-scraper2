@@ -37,6 +37,15 @@ const apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
 
 describe("Fastify control API", () => {
+  it("enforces an optional bearer token while leaving liveness public", async () => {
+    const token = "a-secure-test-token-that-is-at-least-32-characters";
+    const app = buildApp(services(), { apiToken: token }); apps.push(app);
+    expect((await app.inject({ method: "GET", url: "/api/health/live" })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/sources" })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/sources", headers: { authorization: "Bearer wrong" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/sources", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
+  });
+
   it("reports process and database health", async () => {
     const app = buildApp(services()); apps.push(app);
     expect((await app.inject({ method: "GET", url: "/api/health/live" })).json()).toEqual({ status: "ok" });
