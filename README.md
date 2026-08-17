@@ -80,7 +80,7 @@ export COLLECTOR_DATABASE_URL=mysql://collector:collector_local_only@localhost:3
 npm run db:migrate
 ```
 
-See `docs/DATABASE.md` for the schema, isolation rules, and version policy. The migration could be generated and compiled here, but cannot be executed in this sandbox because no Docker/MariaDB service is available.
+See `docs/DATABASE.md` for the schema, isolation rules, and version policy. If you are new to Docker, follow `docs/DOCKER_SETUP.md` from installation through database migration and backups. The migration could be generated and compiled here, but cannot be executed in this sandbox because no Docker/MariaDB service is available.
 
 ## Installing the importer into an OTW checkout
 
