@@ -121,7 +121,7 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
 }
 
 function Library() {
-  const pageSize = 25;
+  const pageSize = 10;
   const [page, setPage] = useState(0);
   const [filter, setFilter] = useState("");
   const [selectedWork, setSelectedWork] = useState<number | null>(null);
