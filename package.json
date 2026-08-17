@@ -13,6 +13,7 @@
     "db:migrate": "npm run db:migrate -w @ao3-offsite/database",
     "dataset:capture": "tsx scripts/capture-work-dataset.ts",
     "dataset:reprocess": "tsx scripts/reprocess-work-dataset.ts",
+    "dataset:load": "tsx scripts/load-package-into-collector.ts",
     "worker:start": "npm run start -w @ao3-offsite/worker",
     "api:start": "npm run start -w @ao3-offsite/api",
     "web:dev": "npm run dev -w @ao3-offsite/web",

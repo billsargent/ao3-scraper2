@@ -15,7 +15,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 15_000, retry: 1 });
   const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 10_000 });
-  const source = sources.data?.sources[0];
+  const source = sources.data?.sources.find((candidate) => candidate.key === "ao3") ?? sources.data?.sources[0];
 
   return <div className="app-shell">
     <aside className="sidebar">
