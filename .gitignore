@@ -4,6 +4,8 @@ dist-types/
 tmp/
 datasets/
 data/
+test-results/
+playwright-report/
 *.tsbuildinfo
 *.log
 .env

@@ -3,7 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "tsc -b --force",
     "test": "vitest run",
@@ -20,11 +23,13 @@
     "api:start": "npm run start -w @ao3-offsite/api",
     "web:dev": "npm run dev -w @ao3-offsite/web",
     "web:build": "npm run build -w @ao3-offsite/web",
+    "test:e2e": "playwright test",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.17.30",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
