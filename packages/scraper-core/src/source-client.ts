@@ -18,6 +18,7 @@ export interface FetchResult {
   body: string;
   fetchedAt: string;
   attempts: number;
+  responseHeaders: Record<string, string>;
 }
 
 export class SourceRequestError extends Error {
@@ -82,7 +83,12 @@ export class PoliteSourceClient {
             if (declaredLength > this.maximumBodyBytes) throw new SourceRequestError(`Response exceeds body limit`, false, response.status);
             const body = await response.text();
             if (Buffer.byteLength(body, "utf8") > this.maximumBodyBytes) throw new SourceRequestError(`Response exceeds body limit`, false, response.status);
-            return { url: url.toString(), status: response.status, body, fetchedAt: new Date().toISOString(), attempts: attempt };
+            const responseHeaders = Object.fromEntries(
+              ["content-type", "content-length", "etag", "last-modified", "cache-control"]
+                .map((name) => [name, response.headers.get(name)] as const)
+                .filter((entry): entry is readonly [string, string] => entry[1] !== null),
+            );
+            return { url: url.toString(), status: response.status, body, fetchedAt: new Date().toISOString(), attempts: attempt, responseHeaders };
           }
 
           const retryable = response.status === 429 || response.status === 503 || response.status >= 500;

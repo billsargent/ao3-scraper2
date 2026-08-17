@@ -5,10 +5,12 @@
   "type": "module",
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b --force",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run build && npm test",
+    "db:generate": "npm run db:generate -w @ao3-offsite/database",
+    "db:migrate": "npm run db:migrate -w @ao3-offsite/database",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"

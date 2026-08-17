@@ -1,0 +1,25 @@
+services:
+  collector-db:
+    image: ${MARIADB_IMAGE:-mariadb:10.11}
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-local_root_only}
+      MARIADB_DATABASE: ${COLLECTOR_DATABASE_NAME:-ao3_collector}
+      MARIADB_USER: ${COLLECTOR_DATABASE_USER:-collector}
+      MARIADB_PASSWORD: ${COLLECTOR_DATABASE_PASSWORD:-collector_local_only}
+    command:
+      - mariadbd
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-file-per-table=1
+    ports:
+      - "${COLLECTOR_DATABASE_PORT:-3307}:3306"
+    volumes:
+      - collector-mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  collector-mariadb:

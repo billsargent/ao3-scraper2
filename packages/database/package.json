@@ -1,0 +1,19 @@
+{
+  "name": "@ao3-offsite/database",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "mysql2": "^3.14.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
+  }
+}

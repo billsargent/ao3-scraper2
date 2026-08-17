@@ -1,0 +1,15 @@
+{
+  "name": "@ao3-offsite/collector",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@ao3-offsite/contracts": "0.1.0",
+    "@ao3-offsite/database": "0.1.0",
+    "@ao3-offsite/scraper-core": "0.1.0",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^3.24.2"
+  }
+}
