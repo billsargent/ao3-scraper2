@@ -16,6 +16,16 @@ npm run db:migrate
 
 Replace `SOURCE_USER_AGENT` in `.env` with a real project contact address before starting a worker against AO3. The worker refuses the placeholder value.
 
+## Load an existing offline package (optional)
+
+For UI development or recovery testing, load a verified package into the collector without contacting the source:
+
+```bash
+npm run dataset:load -- datasets/harry-potter-page-1/package
+```
+
+The loader creates the package source paused when needed and transactionally upserts each work. The private Harry Potter validation package is ignored by Git but remains in the workspace where it was captured.
+
 ## Start the API
 
 ```bash
