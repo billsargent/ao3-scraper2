@@ -32,6 +32,18 @@ export interface CollectionJob {
   taskCounts?: Record<string, number>;
 }
 
+export interface FailureRecord {
+  taskId: number;
+  jobId: number;
+  sourceWorkId: string;
+  status: string;
+  attempts: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  availableAt: string;
+  updatedAt: string;
+}
+
 export interface WorkSummary {
   id: number;
   sourceWorkId: string;
@@ -111,6 +123,8 @@ export const api = {
     method: "POST", body: JSON.stringify(body),
   }),
   controlJob: (id: number, action: "pause" | "resume" | "cancel") => request<{ updated: boolean }>(`/api/jobs/${id}/${action}`, { method: "POST" }),
+  retryFailures: (id: number) => request<{ updated: boolean }>(`/api/jobs/${id}/retry-failures`, { method: "POST" }),
+  failures: (page = 0, limit = 25) => request<{ failures: FailureRecord[]; total: number }>(`/api/failures?limit=${limit}&offset=${page * limit}`),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

@@ -272,7 +272,7 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. Server-Sent Events and detailed failure inspection
+1. Server-Sent Events and detailed export inspection
 2. Asynchronous large-range planning and export jobs
 3. Package-to-OTW import status and operator workflow
 4. Browser-level tests for dashboard/job/settings/auth flows

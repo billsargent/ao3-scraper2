@@ -62,6 +62,7 @@ Open `http://localhost:5173`. Vite proxies browser requests under `/api` to `htt
 - Overview metrics and safety state
 - Durable ID-range job creation
 - Job progress and pause/resume/cancel controls
+- Failure review with recorded code/message and job-level terminal-failure retry
 - Server-paginated collected-work list and title/source-ID search
 - Offline work/chapter reader using plain text extracted from stored HTML
 - Paused-by-default source creation

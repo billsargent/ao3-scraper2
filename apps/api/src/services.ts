@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, like, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
 import { CollectorStore, TaskLeaseStore, planIdRange } from "@ao3-offsite/collector";
 import {
   chapters,
@@ -36,6 +36,8 @@ export interface ApiServices {
   pauseJob(jobId: number): Promise<void>;
   resumeJob(jobId: number): Promise<void>;
   cancelJob(jobId: number): Promise<void>;
+  retryJobFailures(jobId: number): Promise<void>;
+  listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
   getChapter(workId: number, chapterId: number): Promise<unknown | null>;
@@ -92,6 +94,26 @@ export class MariaDbApiServices implements ApiServices {
   pauseJob(jobId: number): Promise<void> { return this.leases.pauseJob(jobId); }
   resumeJob(jobId: number): Promise<void> { return this.leases.resumeJob(jobId); }
   cancelJob(jobId: number): Promise<void> { return this.leases.cancelJob(jobId); }
+  retryJobFailures(jobId: number): Promise<void> { return this.leases.retryFailures(jobId); }
+
+  async listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }> {
+    const failureStates = ["retryable_failed", "terminal_failed"] as const;
+    const items = await this.db.select({
+      taskId: collectionTasks.id,
+      jobId: collectionTasks.jobId,
+      sourceWorkId: collectionTasks.sourceWorkId,
+      status: collectionTasks.status,
+      attempts: collectionTasks.attempts,
+      errorCode: collectionTasks.lastErrorCode,
+      errorMessage: collectionTasks.lastErrorMessage,
+      availableAt: collectionTasks.availableAt,
+      updatedAt: collectionTasks.updatedAt,
+    }).from(collectionTasks).where(inArray(collectionTasks.status, [...failureStates]))
+      .orderBy(desc(collectionTasks.updatedAt)).limit(limit).offset(offset);
+    const total = (await this.db.select({ value: count() }).from(collectionTasks)
+      .where(inArray(collectionTasks.status, [...failureStates])))[0]?.value ?? 0;
+    return { items, total };
+  }
 
   async listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }> {
     const filter = query

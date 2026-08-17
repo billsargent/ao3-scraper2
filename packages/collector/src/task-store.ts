@@ -189,6 +189,18 @@ export class TaskLeaseStore {
     await this.db.update(collectionJobs).set({ status: "running", updatedAt: new Date() }).where(eq(collectionJobs.id, jobId));
   }
 
+  async retryFailures(jobId: number): Promise<void> {
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx.update(collectionTasks).set({
+        status: "queued", attempts: 0, availableAt: now, leaseExpiresAt: null, leasedBy: null,
+        lastErrorCode: null, lastErrorMessage: null, updatedAt: now,
+      }).where(and(eq(collectionTasks.jobId, jobId), eq(collectionTasks.status, "terminal_failed")));
+      await tx.update(collectionJobs).set({ status: "running", completedAt: null, updatedAt: now })
+        .where(and(eq(collectionJobs.id, jobId), inArray(collectionJobs.status, ["completed", "failed", "paused", "running"])));
+    });
+  }
+
   async cancelJob(jobId: number): Promise<void> {
     const now = new Date();
     await this.db.transaction(async (tx) => {

@@ -146,6 +146,12 @@ integration("CollectorStore with MariaDB", () => {
 
     const job = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!;
     expect(job).toMatchObject({ status: "completed", succeededCount: 3, failedCount: 1 });
+    await leases.retryFailures(jobId);
+    const retried = (await db.select().from(collectionTasks).where(and(
+      eq(collectionTasks.jobId, jobId), eq(collectionTasks.sourceWorkId, workerA[1]!.sourceWorkId),
+    )))[0]!;
+    expect(retried).toMatchObject({ status: "queued", attempts: 0, lastErrorCode: null });
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("running");
   });
 
   it("reclaims expired leases and respects pause, resume, and cancel", async () => {

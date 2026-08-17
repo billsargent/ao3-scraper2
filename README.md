@@ -32,7 +32,7 @@ Implemented:
 - Continuously running worker with graceful shutdown and bounded retry scheduling
 - MariaDB-to-transfer-package exporter with snapshot/incremental lineage and exported-hash tracking
 - Fastify control API with optional constant-time bearer-token authentication
-- Responsive React/Vite operator interface with a token unlock screen with dashboard, jobs, paginated list library, offline chapter reader, and granular source policy
+- Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, paginated library, offline chapter reader, and granular source policy
 - Limited live validation dataset from the first Harry Potter search-results page
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests
@@ -182,7 +182,7 @@ The OTW importer has also been installed into the reference OTW checkout and run
 
 ## Next steps
 
-1. Add Server-Sent Events and detailed failure/export endpoints.
+1. Add Server-Sent Events and detailed export endpoints.
 2. Move large-range planning and package export into asynchronous worker tasks.
 3. Add package-to-OTW import status tracking and an operator import workflow.
 4. Add browser-level tests and automate the low-memory OTW end-to-end integration test.

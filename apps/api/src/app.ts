@@ -111,6 +111,16 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
       return { updated: true };
     });
   }
+  app.post("/api/jobs/:id/retry-failures", async (request) => {
+    const { id } = IdParams.parse(request.params);
+    await services.retryJobFailures(id);
+    return { updated: true };
+  });
+  app.get("/api/failures", async (request) => {
+    const { limit, offset } = Pagination.parse(request.query);
+    const result = await services.listFailures(limit, offset);
+    return { failures: result.items, total: result.total, limit, offset };
+  });
   app.get("/api/works", async (request) => {
     const { limit, offset, q } = WorksQuery.parse(request.query);
     const result = await services.listWorks(limit, offset, q);

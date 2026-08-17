@@ -2,11 +2,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, setApiToken, type CollectionJob, type Source } from "./api.js";
 
-type Page = "dashboard" | "jobs" | "library" | "settings";
+type Page = "dashboard" | "jobs" | "failures" | "library" | "settings";
 
 const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "dashboard", label: "Overview", icon: <Icon path="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" /> },
   { id: "jobs", label: "Collection jobs", icon: <Icon path="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" /> },
+  { id: "failures", label: "Failure review", icon: <Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /> },
   { id: "library", label: "Archive library", icon: <Icon path="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Zm0 15A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 18.5" /> },
   { id: "settings", label: "Source settings", icon: <Icon path="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 6a1.7 1.7 0 0 0 1.04-1.55V4.3h3v.15A1.7 1.7 0 0 0 15.74 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z" /> },
 ];
@@ -42,6 +43,7 @@ export default function App() {
       <div className="content">
         {page === "dashboard" && <Dashboard source={source} onNavigate={setPage} />}
         {page === "jobs" && <Jobs source={source} />}
+        {page === "failures" && <Failures />}
         {page === "library" && <Library />}
         {page === "settings" && <Settings source={source} />}
       </div>
@@ -122,6 +124,24 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
   </form></div>;
+}
+
+function Failures() {
+  const client = useQueryClient();
+  const pageSize = 25;
+  const [page, setPage] = useState(0);
+  const failures = useQuery({ queryKey: ["failures", page], queryFn: () => api.failures(page, pageSize), refetchInterval: 5000 });
+  const retry = useMutation({ mutationFn: api.retryFailures, onSuccess: () => Promise.all([
+    client.invalidateQueries({ queryKey: ["failures"] }), client.invalidateQueries({ queryKey: ["jobs"] }),
+  ]) });
+  const rows = failures.data?.failures ?? [];
+  const total = failures.data?.total ?? 0;
+  return <>
+    <div className="page-actions"><div><h2>Failure review</h2><p>Inspect retryable and terminal outcomes without losing captured content.</p></div></div>
+    <Panel title={`${formatNumber(total)} failures requiring attention`}>
+      {rows.length ? <><div className="table-wrap"><table><thead><tr><th>Work</th><th>Job</th><th>State</th><th>Attempts</th><th>Error</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{rows.map((failure) => <tr key={failure.taskId}><td><b>AO3 #{failure.sourceWorkId}</b><small>Task #{failure.taskId}</small></td><td>#{failure.jobId}</td><td><Status status={failure.status} /></td><td>{failure.attempts}</td><td className="error-cell"><b>{failure.errorCode ?? "Unknown error"}</b><small>{failure.errorMessage ?? "No error detail was recorded."}</small></td><td>{formatDateTime(failure.updatedAt)}</td><td><button className="read-button" disabled={retry.isPending} onClick={() => retry.mutate(failure.jobId)}>Retry job failures</button></td></tr>)}</tbody></table></div><div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page {page + 1}</span><button disabled={(page + 1) * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next →</button></div></> : <Empty title="No failures to review" text="Retryable and terminal task errors will appear here." />}
+    </Panel>
+  </>;
 }
 
 function Library() {

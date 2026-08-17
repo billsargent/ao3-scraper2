@@ -14,6 +14,8 @@ function services(): ApiServices {
     pauseJob: vi.fn().mockResolvedValue(undefined),
     resumeJob: vi.fn().mockResolvedValue(undefined),
     cancelJob: vi.fn().mockResolvedValue(undefined),
+    retryJobFailures: vi.fn().mockResolvedValue(undefined),
+    listFailures: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getWork: vi.fn().mockResolvedValue(null),
     getChapter: vi.fn().mockResolvedValue(null),
@@ -85,6 +87,9 @@ describe("Fastify control API", () => {
     const mock = services(); const app = buildApp(mock); apps.push(app);
     expect((await app.inject({ method: "POST", url: "/api/jobs/7/pause" })).statusCode).toBe(200);
     expect(mock.pauseJob).toHaveBeenCalledWith(7);
+    expect((await app.inject({ method: "POST", url: "/api/jobs/7/retry-failures" })).statusCode).toBe(200);
+    expect(mock.retryJobFailures).toHaveBeenCalledWith(7);
+    expect((await app.inject({ method: "GET", url: "/api/failures?limit=10&offset=0" })).json()).toMatchObject({ total: 0, failures: [] });
     expect((await app.inject({ method: "GET", url: "/api/jobs/999" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/api/works/999" })).statusCode).toBe(404);
   });
