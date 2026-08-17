@@ -6,6 +6,7 @@ RSpec.describe PreservationImport::PackageReader do
 
   before do
     FileUtils.rm_rf(package_path)
+    FileUtils.mkdir_p(package_path.parent)
     FileUtils.cp_r(fixture_path, package_path)
   end
 

@@ -22,7 +22,7 @@ docker compose up -d collector-db
 npm run db:migrate -w @ao3-offsite/database
 ```
 
-The current sandbox does not provide Docker or MariaDB, so the generated migration has not yet been executed here.
+The generated migration has been executed successfully against the provided MariaDB 10.11 container. Integration tests also verified idempotent durable-task creation and transactional work/chapter/tag/series reconciliation.
 
 ## Schema groups
 

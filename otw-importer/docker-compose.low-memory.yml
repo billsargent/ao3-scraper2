@@ -1,0 +1,8 @@
+services:
+  es:
+    environment:
+      ES_JAVA_OPTS: "-Xms128m -Xmx128m"
+      xpack.ml.enabled: "false"
+      xpack.watcher.enabled: "false"
+      xpack.security.enabled: "false"
+      ingest.geoip.downloader.enabled: "false"

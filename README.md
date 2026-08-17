@@ -30,7 +30,7 @@ Implemented:
 
 Not yet implemented:
 
-- Executed MariaDB migration/integration tests and live-site parser validation
+- Live-site work-page parser validation beyond the reachable homepage
 - Durable task claiming/recovery service, Fastify API, and Vite interface
 - Comments and assets
 - Executed OTW/Rails integration test (specs and fixtures are present, but require Ruby/Docker)
@@ -80,7 +80,7 @@ export COLLECTOR_DATABASE_URL=mysql://collector:collector_local_only@localhost:3
 npm run db:migrate
 ```
 
-See `docs/DATABASE.md` for the schema, isolation rules, and version policy. If you are new to Docker, follow `docs/DOCKER_SETUP.md` from installation through database migration and backups. The migration could be generated and compiled here, but cannot be executed in this sandbox because no Docker/MariaDB service is available.
+See `docs/DATABASE.md` for the schema, isolation rules, and version policy. If you are new to Docker, follow `docs/DOCKER_SETUP.md` from installation through database migration and backups. The generated migration and transactional repository tests have been executed successfully against MariaDB 10.11 in Docker.
 
 ## Installing the importer into an OTW checkout
 
@@ -143,13 +143,14 @@ The importer deliberately sets imported works to restricted in this first privat
 - Work-task snapshot/parse/persist ordering
 - Not-found observations and parser-failure snapshot retention
 
-The OTW RSpec tests are included but cannot be executed in the current sandbox because Ruby and Docker are not installed. They must be run in OTW's documented Docker test environment before this importer is considered working against Rails.
+Database integration has been exercised against MariaDB 10.11: the migration ran successfully and the repository passed tests for durable task idempotency plus transactional work/chapter/tag/series reconciliation.
+
+The OTW importer has also been installed into the reference OTW checkout and run in its Docker test environment. Its migration succeeded against MariaDB, and the package reader/importer suite passes with **6 examples and 0 failures**, covering initial import, package idempotency, package ordering, source identities, chapters, tags, series, and incremental updates. Elasticsearch required a low-memory Compose override in this 2 GB sandbox.
 
 ## Next steps
 
-1. Execute the MariaDB migration and repository integration tests in a container-capable environment.
-2. Run and fix the RSpec vertical slice in a disposable OTW test container.
-3. Validate the parser against a very small permitted set of current page shapes and add sanitized fixtures.
-4. Implement MariaDB task claiming, expired-lease recovery, pause/resume/cancel, and package export from normalized records.
-5. Add the Fastify API and then the Vite operations UI.
-6. Add comments only after core work imports and incremental updates are reliable.
+1. Add MariaDB task claiming, expired-lease recovery, pause/resume/cancel, and package export from normalized records.
+2. Validate the parser against a very small permitted set of current page shapes and add sanitized fixtures.
+3. Add the Fastify API and then the Vite operations UI.
+4. Add an automated low-memory OTW integration test script/Compose override.
+5. Add comments only after core work imports and incremental updates are reliable.

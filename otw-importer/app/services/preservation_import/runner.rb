@@ -227,6 +227,9 @@ module PreservationImport
             title: row.fetch("name"), summary: row.fetch("summaryHtml"),
             complete: row["complete"] || false
           )
+          if series.creatorships.empty?
+            series.creatorships.build(pseud: @archivist.default_pseud, approved: true)
+          end
           if @dry_run
             raise InvalidPackage, series.errors.full_messages.join("; ") unless series.valid?
             raise ActiveRecord::Rollback

@@ -261,25 +261,41 @@ cd ao3-offsite-pipeline
 ./scripts/install-into-otw.sh ../otwarchive
 ```
 
-3. Initialize OTW using the instructions in its repository:
+3. The installer copies the importer fixtures into the OTW checkout and adds `docker-compose.preservation-test.yml`, a low-memory Elasticsearch override. Initialize OTW using the repository script:
 
 ```bash
 cd ../otwarchive
 script/docker/init.sh
 ```
 
-4. Run only the importer specs first:
+If your checkout lost executable bits, run it as `bash script/docker/init.sh`. Use only a disposable OTW development/test database.
+
+4. On a machine with limited memory, stop the Resque development worker and start Elasticsearch with the test override:
 
 ```bash
-docker compose run --rm \
-  -e PRESERVATION_FIXTURE_PACKAGE=/pipeline/fixtures/package-v1 \
-  -e PRESERVATION_UPDATE_FIXTURE_PACKAGE=/pipeline/fixtures/package-v1-update \
+docker compose stop resque
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.preservation-test.yml \
+  up -d --force-recreate es
+```
+
+5. Run the importer specs:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.preservation-test.yml \
+  run --rm --no-deps \
+  -e RAILS_ENV=test \
+  -e PRESERVATION_FIXTURE_PACKAGE=/otwa/spec/fixtures/preservation/package-v1 \
+  -e PRESERVATION_UPDATE_FIXTURE_PACKAGE=/otwa/spec/fixtures/preservation/package-v1-update \
   test bundle exec rspec \
   spec/services/preservation_import/package_reader_spec.rb \
   spec/services/preservation_import/runner_spec.rb
 ```
 
-The fixture paths must be mounted into the OTW test container. The OTW Compose file does not yet contain that mount; the project will add a dedicated integration Compose override before this command is considered ready to copy and run unchanged.
+This sequence was executed successfully in a 2 GB test sandbox: **6 examples, 0 failures**. On a larger machine, OTW's normal Elasticsearch heap may be preferable to the low-memory override.
 
 Do not initialize OTW against an important existing database. Use a disposable development/test environment.
 

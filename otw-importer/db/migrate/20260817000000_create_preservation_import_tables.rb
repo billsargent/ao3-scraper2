@@ -20,7 +20,7 @@ class CreatePreservationImportTables < ActiveRecord::Migration[8.1]
 
     create_table :preservation_work_links do |t|
       t.references :preservation_source, null: false, foreign_key: true
-      t.references :work, null: false, foreign_key: true, type: :integer
+      t.references :work, null: false, foreign_key: true, type: :integer, index: { unique: true }
       t.string :source_work_id, null: false
       t.string :source_url, null: false
       t.string :imported_hash, null: false
@@ -28,7 +28,6 @@ class CreatePreservationImportTables < ActiveRecord::Migration[8.1]
       t.datetime :last_imported_at, null: false
       t.timestamps
       t.index [:preservation_source_id, :source_work_id], unique: true, name: "idx_preservation_works_source_identity"
-      t.index :work_id, unique: true
     end
 
     create_table :preservation_work_authors do |t|
@@ -41,22 +40,20 @@ class CreatePreservationImportTables < ActiveRecord::Migration[8.1]
 
     create_table :preservation_chapter_links do |t|
       t.references :preservation_work_link, null: false, foreign_key: true
-      t.references :chapter, null: false, foreign_key: true, type: :integer
+      t.references :chapter, null: false, foreign_key: true, type: :integer, index: { unique: true }
       t.string :source_chapter_id, null: false
       t.string :imported_hash, null: false
       t.timestamps
       t.index [:preservation_work_link_id, :source_chapter_id], unique: true, name: "idx_preservation_chapters_source_identity"
-      t.index :chapter_id, unique: true
     end
 
     create_table :preservation_series_links do |t|
       t.references :preservation_source, null: false, foreign_key: true
-      t.references :series, null: false, foreign_key: true, type: :integer
+      t.references :series, null: false, foreign_key: true, type: :integer, index: { unique: true }
       t.string :source_series_id, null: false
       t.string :source_url, null: false
       t.timestamps
       t.index [:preservation_source_id, :source_series_id], unique: true, name: "idx_preservation_series_source_identity"
-      t.index :series_id, unique: true
     end
 
     create_table :preservation_import_runs do |t|
