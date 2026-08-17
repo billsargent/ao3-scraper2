@@ -269,27 +269,22 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 ## Immediate implementation order
 
-The next coding sequence should be:
+The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. MariaDB task leasing and worker recovery
-2. Job pause/resume/cancel and retry scheduling
-3. Package exporter from MariaDB
-4. Local fixture HTTP source and end-to-end collector test
-5. Minimal Fastify API
-6. Vite dashboard/job screens
-7. Limited approved live parser validation
-8. Full local collector-to-OTW automated test
-
-The UI should not come before durable worker recovery and package export; otherwise it would present controls over a pipeline that cannot yet safely survive interruption.
+1. API authentication for anything beyond localhost
+2. Server-Sent Events and detailed failure inspection
+3. Asynchronous large-range planning and export jobs
+4. Package-to-OTW import status and operator workflow
+5. Browser-level tests for dashboard/job/settings flows
+6. One-command low-memory collector-to-OTW integration test
+7. Deployment and backup profiles
 
 ---
 
-## Inputs needed from the team before live validation
+## Remaining team input
 
-- A real project contact address for the User-Agent
-- A few public test-work URLs the team controls or has permission to use
-- Confirmation of the initial minimum delay and daily request budget
-- Whether adult-content interstitial acceptance is enabled
-- Whether the private OTW archive should import all works as restricted by default
+The live validation dataset, delay, request budgets, adult-content policy, and private/restricted OTW default are now decided. Before routine source collection, the worker still requires one value that is intentionally not committed:
 
-None of these decisions block fixture-only task leasing, package export, API, or UI development.
+- A real team contact address for the collector User-Agent
+
+Fixture-only development, API/UI work, package export, and OTW import testing do not require that value.
