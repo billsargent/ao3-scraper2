@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   authors,
@@ -80,6 +80,7 @@ integration("CollectorStore with MariaDB", () => {
       operatingWindowStartHourUtc: null, operatingWindowEndHourUtc: null,
       includeAdult: true, requestTimeoutMs: 60_000, maximumResponseBytes: 20_971_520,
       maximumFailureAttempts: 6,
+      exportLeaseToken: null, exportLeaseExpiresAt: null, nextExportSequence: 1,
     })
       .where(eq(sources.id, sourceId));
   });
@@ -210,6 +211,56 @@ integration("CollectorStore with MariaDB", () => {
     expect(await leases.claim("after-cancel", 10, 30_000)).toHaveLength(0);
   });
 
+  it("recovers an expired export with the same package and sequence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ao3-export-recovery-"));
+    try {
+      const queue = new ExportQueueStore(db);
+      const request = await queue.createRequest(sourceId, root, 10);
+      const first = await queue.claim("crashed-worker", 30_000);
+      expect(first).toMatchObject({ id: request.id, packageId: request.packageId, sequenceNumber: 1 });
+      await queue.markWriting(first!.id, first!.leaseToken);
+      const expired = new Date(Date.now() - 1_000);
+      await db.update(exportRuns).set({ leaseExpiresAt: expired }).where(eq(exportRuns.id, first!.id));
+      await db.update(sources).set({ exportLeaseExpiresAt: expired }).where(eq(sources.id, sourceId));
+      const recovered = await queue.claim("replacement-worker", 30_000);
+      expect(recovered).toMatchObject({
+        id: first!.id,
+        packageId: first!.packageId,
+        sequenceNumber: first!.sequenceNumber,
+        previousPackageId: first!.previousPackageId,
+      });
+      await queue.markFailed(recovered!.id, recovered!.leaseToken, new Error("test cleanup"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("allows export workers to claim different sources concurrently", async () => {
+    const otherSourceId = (await db.insert(sources).values({
+      key: "second-export-source", origin: "https://example.org", paused: true,
+    }).$returningId())[0]!.id;
+    const root = await mkdtemp(join(tmpdir(), "ao3-export-claims-"));
+    try {
+      const queue = new ExportQueueStore(db);
+      await queue.createRequest(sourceId, root, 10);
+      await queue.createRequest(otherSourceId, root, 10);
+      const [first, second] = await Promise.all([
+        queue.claim("parallel-a", 30_000), queue.claim("parallel-b", 30_000),
+      ]);
+      expect(first).not.toBeNull();
+      expect(second).not.toBeNull();
+      expect(new Set([first!.sourceId, second!.sourceId]).size).toBe(2);
+      expect(first!.sequenceNumber).toBe(1);
+      expect(second!.sequenceNumber).toBe(1);
+      await queue.markFailed(first!.id, first!.leaseToken, new Error("test cleanup"));
+      await queue.markFailed(second!.id, second!.leaseToken, new Error("test cleanup"));
+    } finally {
+      await db.delete(exportRuns).where(eq(exportRuns.sourceId, otherSourceId));
+      await db.delete(sources).where(eq(sources.id, otherSourceId));
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("runs a leased task end to end against a local fixture source", async () => {
     const html = await readFile(fileURLToPath(fixtureUrl), "utf8");
     const server = createServer((_request, response) => {
@@ -299,19 +350,36 @@ integration("CollectorStore with MariaDB", () => {
       expect(exported.records.workTags).toHaveLength(3);
       expect(exported.records.seriesWorks).toHaveLength(1);
 
-      const emptyRequest = await queue.createRequest(sourceId, exportRoot, 100);
-      expect(await worker.processOne()).toBe(true);
-      expect((await db.select().from(exportRuns).where(eq(exportRuns.id, emptyRequest.id)))[0]!.status).toBe("empty");
-
       await db.update(works).set({ title: "Changed after export", contentHash: `sha256:${"c".repeat(64)}` })
         .where(eq(works.id, workId));
       const secondRequest = await queue.createRequest(sourceId, exportRoot, 100);
-      expect(await worker.processOne()).toBe(true);
-      const incremental = await readTransferPackage(join(exportRoot, secondRequest.packageId));
+      const thirdRequest = await queue.createRequest(sourceId, exportRoot, 100);
+      const [claimA, claimB] = await Promise.all([
+        queue.claim("export-worker-a", 30_000),
+        queue.claim("export-worker-b", 30_000),
+      ]);
+      const activeClaim = claimA ?? claimB;
+      expect(activeClaim).not.toBeNull();
+      expect([claimA, claimB].filter(Boolean)).toHaveLength(1);
+      expect(activeClaim!.sequenceNumber).toBe(2);
+      expect(activeClaim!.previousPackageId).toBe(firstRequest.packageId);
+      await queue.markWriting(activeClaim!.id, activeClaim!.leaseToken);
+      await new MariaDbPackageExporter(db).processClaimed(activeClaim!);
+
+      const waitingClaim = await queue.claim("export-worker-b", 30_000);
+      expect(waitingClaim).not.toBeNull();
+      expect(waitingClaim!.sequenceNumber).toBe(3);
+      expect(waitingClaim!.previousPackageId).toBe(activeClaim!.packageId);
+      await queue.markWriting(waitingClaim!.id, waitingClaim!.leaseToken);
+      expect(await new MariaDbPackageExporter(db).processClaimed(waitingClaim!)).toBe("empty");
+
+      const incremental = await readTransferPackage(join(exportRoot, activeClaim!.packageId));
       expect(incremental.manifest).toMatchObject({
-        packageId: secondRequest.packageId, packageType: "incremental", previousPackageId: firstRequest.packageId,
+        packageId: activeClaim!.packageId, packageType: "incremental", previousPackageId: firstRequest.packageId,
       });
       expect(incremental.records.works).toMatchObject([{ title: "Changed after export" }]);
+      const runs = await db.select().from(exportRuns).where(inArray(exportRuns.id, [secondRequest.id, thirdRequest.id]));
+      expect(new Set(runs.map((run) => run.sequenceNumber)).size).toBe(2);
       expect((await db.select().from(exportRuns).where(eq(exportRuns.status, "completed")))).toHaveLength(2);
     } finally {
       await rm(exportRoot, { recursive: true, force: true });

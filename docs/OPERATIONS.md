@@ -199,7 +199,7 @@ export COLLECTOR_API_TOKEN="$API_TOKEN"
 
 It reports `importing`, then `imported` with its OTW import-run ID, or `failed` with an error. Callback failures are logged but do not roll back an otherwise successful OTW import.
 
-Run one export worker per collector database in this milestone; multi-worker export lineage serialization is planned hardening.
+Multiple export workers are supported. MariaDB locks one active export per source, while allowing different sources to export concurrently. Sequence numbers and parent package IDs are assigned in the same transaction; recovered leases reuse the existing package ID and sequence.
 
 ## Unpause source collection
 

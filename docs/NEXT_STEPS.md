@@ -36,6 +36,7 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed asynchronous ID-range planning with MariaDB leases, bounded inserts, cursor checkpoints, idempotent recovery, a standalone planner worker, and UI planning state.
 - Completed verified `.tar.gz` package artifacts, authenticated manifest/download endpoints, archive SHA-256/size metadata, and OTW import-status tracking in the Transfer Packages inspector.
 - Completed optional Rails-to-collector callbacks for automatic `importing`, `imported`, and `failed` status with OTW run IDs.
+- Completed multi-worker export safety with per-source leases, transactional sequence/parent assignment, crash reuse, and parallel exports across different sources.
 - Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
@@ -277,9 +278,9 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. Multi-worker export lineage serialization
-2. Browser-level tests for dashboard, jobs, exports, settings, and authentication
-3. Signed/automated deployment artifacts
+1. Browser-level tests for dashboard, jobs, exports, settings, and authentication
+2. Signed/automated deployment artifacts
+3. Backup/restore automation and deployment profiles
 4. One-command low-memory collector-to-OTW integration test
 5. Deployment and backup profiles
 

@@ -40,6 +40,7 @@ export interface ExportRecord {
   sourceId: number;
   packageId: string;
   previousPackageId: string | null;
+  sequenceNumber: number | null;
   status: "queued" | "leased" | "writing" | "completed" | "empty" | "failed";
   outputDirectory: string;
   maximumWorks: number;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { exportRuns, sources, type CollectorDatabase } from "@ao3-offsite/database";
 
 export interface ClaimedExport {
@@ -10,6 +10,7 @@ export interface ClaimedExport {
   origin: string;
   packageId: string;
   previousPackageId: string | null;
+  sequenceNumber: number;
   outputDirectory: string;
   maximumWorks: number;
   leaseToken: string;
@@ -37,38 +38,95 @@ export class ExportQueueStore {
 
   async claim(workerId: string, leaseMilliseconds = 300_000): Promise<ClaimedExport | null> {
     const now = new Date();
-    const leaseToken = `${workerId}:${randomUUID()}`;
-    const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
-    await this.db.execute(sql`
-      UPDATE export_runs
-      SET status = 'leased', lease_token = ${leaseToken}, lease_expires_at = ${leaseExpiresAt}, updated_at = ${now}
-      WHERE status = 'queued' OR (status IN ('leased', 'writing') AND lease_expires_at <= ${now})
-      ORDER BY id
-      LIMIT 1
-    `);
-    const row = (await this.db.select({
-      id: exportRuns.id,
-      sourceId: exportRuns.sourceId,
-      sourceKey: sources.key,
-      origin: sources.origin,
-      packageId: exportRuns.packageId,
-      outputDirectory: exportRuns.outputDirectory,
-      maximumWorks: exportRuns.maximumWorks,
-    }).from(exportRuns).innerJoin(sources, eq(sources.id, exportRuns.sourceId))
-      .where(eq(exportRuns.leaseToken, leaseToken)).limit(1))[0];
-    if (!row) return null;
-    const previous = (await this.db.select({ packageId: exportRuns.packageId }).from(exportRuns).where(and(
-      eq(exportRuns.sourceId, row.sourceId), eq(exportRuns.status, "completed"),
-    )).orderBy(desc(exportRuns.completedAt)).limit(1))[0];
-    await this.db.update(exportRuns).set({ previousPackageId: previous?.packageId ?? null }).where(eq(exportRuns.id, row.id));
-    return { ...row, previousPackageId: previous?.packageId ?? null, leaseToken };
+    const candidates = await this.db.selectDistinct({ sourceId: exportRuns.sourceId }).from(exportRuns).where(or(
+      eq(exportRuns.status, "queued"),
+      and(inArray(exportRuns.status, ["leased", "writing"]), lte(exportRuns.leaseExpiresAt, now)),
+    )).orderBy(exportRuns.sourceId).limit(50);
+
+    for (const candidate of candidates) {
+      const leaseToken = `${workerId}:${randomUUID()}`;
+      const leaseExpiresAt = new Date(now.getTime() + leaseMilliseconds);
+      const claim = await this.db.transaction(async (tx) => {
+        const sourceLock = await tx.update(sources).set({
+          exportLeaseToken: leaseToken,
+          exportLeaseExpiresAt: leaseExpiresAt,
+          updatedAt: now,
+        }).where(and(
+          eq(sources.id, candidate.sourceId),
+          or(isNull(sources.exportLeaseExpiresAt), lte(sources.exportLeaseExpiresAt, now)),
+        ));
+        if (affectedRows(sourceLock) !== 1) return null;
+
+        const row = (await tx.select({
+          id: exportRuns.id,
+          sourceId: exportRuns.sourceId,
+          sourceKey: sources.key,
+          origin: sources.origin,
+          packageId: exportRuns.packageId,
+          previousPackageId: exportRuns.previousPackageId,
+          sequenceNumber: exportRuns.sequenceNumber,
+          outputDirectory: exportRuns.outputDirectory,
+          maximumWorks: exportRuns.maximumWorks,
+          nextExportSequence: sources.nextExportSequence,
+        }).from(exportRuns).innerJoin(sources, eq(sources.id, exportRuns.sourceId)).where(and(
+          eq(exportRuns.sourceId, candidate.sourceId),
+          or(
+            eq(exportRuns.status, "queued"),
+            and(inArray(exportRuns.status, ["leased", "writing"]), lte(exportRuns.leaseExpiresAt, now)),
+          ),
+        )).orderBy(exportRuns.id).limit(1).for("update"))[0];
+        if (!row) {
+          await tx.update(sources).set({ exportLeaseToken: null, exportLeaseExpiresAt: null }).where(eq(sources.exportLeaseToken, leaseToken));
+          return null;
+        }
+
+        let sequenceNumber = row.sequenceNumber;
+        let previousPackageId = row.previousPackageId;
+        if (sequenceNumber === null) {
+          sequenceNumber = row.nextExportSequence;
+          const previous = (await tx.select({ packageId: exportRuns.packageId }).from(exportRuns).where(and(
+            eq(exportRuns.sourceId, row.sourceId), eq(exportRuns.status, "completed"),
+          )).orderBy(desc(exportRuns.sequenceNumber)).limit(1))[0];
+          previousPackageId = previous?.packageId ?? null;
+          await tx.update(sources).set({ nextExportSequence: row.nextExportSequence + 1 }).where(eq(sources.id, row.sourceId));
+        }
+        await tx.update(exportRuns).set({
+          status: "leased",
+          leaseToken,
+          leaseExpiresAt,
+          sequenceNumber,
+          previousPackageId,
+          updatedAt: now,
+        }).where(eq(exportRuns.id, row.id));
+        return {
+          id: row.id,
+          sourceId: row.sourceId,
+          sourceKey: row.sourceKey,
+          origin: row.origin,
+          packageId: row.packageId,
+          previousPackageId,
+          sequenceNumber,
+          outputDirectory: row.outputDirectory,
+          maximumWorks: row.maximumWorks,
+          leaseToken,
+        };
+      });
+      if (claim) return claim;
+    }
+    return null;
   }
 
   async heartbeat(id: number, leaseToken: string, leaseMilliseconds = 300_000): Promise<boolean> {
-    const result = await this.db.update(exportRuns).set({
-      leaseExpiresAt: new Date(Date.now() + leaseMilliseconds), updatedAt: new Date(),
-    }).where(and(eq(exportRuns.id, id), eq(exportRuns.leaseToken, leaseToken), inArray(exportRuns.status, ["leased", "writing"])));
-    return affectedRows(result) === 1;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + leaseMilliseconds);
+    return this.db.transaction(async (tx) => {
+      const result = await tx.update(exportRuns).set({ leaseExpiresAt: expiresAt, updatedAt: now })
+        .where(and(eq(exportRuns.id, id), eq(exportRuns.leaseToken, leaseToken), inArray(exportRuns.status, ["leased", "writing"])));
+      if (affectedRows(result) !== 1) return false;
+      await tx.update(sources).set({ exportLeaseExpiresAt: expiresAt, updatedAt: now })
+        .where(eq(sources.exportLeaseToken, leaseToken));
+      return true;
+    });
   }
 
   async markWriting(id: number, leaseToken: string): Promise<boolean> {
@@ -78,11 +136,16 @@ export class ExportQueueStore {
   }
 
   async markFailed(id: number, leaseToken: string, error: unknown): Promise<void> {
-    await this.db.update(exportRuns).set({
-      status: "failed",
-      errorMessage: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-      completedAt: new Date(), leaseToken: null, leaseExpiresAt: null, updatedAt: new Date(),
-    }).where(and(eq(exportRuns.id, id), eq(exportRuns.leaseToken, leaseToken)));
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      await tx.update(exportRuns).set({
+        status: "failed",
+        errorMessage: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        completedAt: now, leaseToken: null, leaseExpiresAt: null, updatedAt: now,
+      }).where(and(eq(exportRuns.id, id), eq(exportRuns.leaseToken, leaseToken)));
+      await tx.update(sources).set({ exportLeaseToken: null, exportLeaseExpiresAt: null, updatedAt: now })
+        .where(eq(sources.exportLeaseToken, leaseToken));
+    });
   }
 }
 

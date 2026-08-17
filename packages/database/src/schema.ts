@@ -41,6 +41,9 @@ export const sources = mysqlTable("sources", {
   maximumFailureAttempts: int("maximum_failure_attempts", { unsigned: true }).notNull().default(6),
   operatingWindowStartHourUtc: int("operating_window_start_hour_utc", { unsigned: true }),
   operatingWindowEndHourUtc: int("operating_window_end_hour_utc", { unsigned: true }),
+  exportLeaseToken: varchar("export_lease_token", { length: 255 }),
+  exportLeaseExpiresAt: datetime("export_lease_expires_at", { mode: "date", fsp: 3 }),
+  nextExportSequence: bigint("next_export_sequence", { mode: "number", unsigned: true }).notNull().default(1),
   paused: boolean("paused").notNull().default(false),
   nextRequestAt: datetime("next_request_at", { mode: "date", fsp: 3 }),
   ...timestamps,
@@ -79,6 +82,7 @@ export const exportRuns = mysqlTable("export_runs", {
   sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "restrict" }),
   packageId: char("package_id", { length: 36 }).notNull(),
   previousPackageId: char("previous_package_id", { length: 36 }),
+  sequenceNumber: bigint("sequence_number", { mode: "number", unsigned: true }),
   status: mysqlEnum("status", ["queued", "leased", "writing", "completed", "empty", "failed"]).notNull().default("queued"),
   outputDirectory: varchar("output_directory", { length: 1500 }).notNull(),
   maximumWorks: int("maximum_works", { unsigned: true }).notNull().default(500),
@@ -99,6 +103,7 @@ export const exportRuns = mysqlTable("export_runs", {
   ...timestamps,
 }, (table) => [
   uniqueIndex("export_runs_package_unique").on(table.packageId),
+  uniqueIndex("export_runs_source_sequence_unique").on(table.sourceId, table.sequenceNumber),
   index("export_runs_source_status").on(table.sourceId, table.status, table.completedAt),
 ]);
 

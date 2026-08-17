@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import * as tar from "tar";
-import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { FORMAT_VERSION, type TransferRecords } from "@ao3-offsite/contracts";
 import {
   authors,
@@ -12,6 +12,7 @@ import {
   observations,
   series,
   seriesWorks,
+  sources,
   tags,
   workAuthors,
   works,
@@ -31,14 +32,6 @@ export interface ExportOptions {
   packageId?: string;
 }
 
-export interface IncrementalExportOptions {
-  sourceId: number;
-  sourceKey: string;
-  origin: string;
-  outputDirectory: string;
-  maximumWorks?: number;
-}
-
 export class MariaDbPackageExporter {
   constructor(private readonly db: CollectorDatabase) {}
 
@@ -52,10 +45,14 @@ export class MariaDbPackageExporter {
     )).orderBy(asc(works.id)).limit(claim.maximumWorks);
     if (changed.length === 0) {
       const now = new Date();
-      await this.db.update(exportRuns).set({
-        status: "empty", workCount: 0, completedAt: now,
-        leaseToken: null, leaseExpiresAt: null, updatedAt: now,
-      }).where(and(eq(exportRuns.id, claim.id), eq(exportRuns.leaseToken, claim.leaseToken)));
+      await this.db.transaction(async (tx) => {
+        await tx.update(exportRuns).set({
+          status: "empty", workCount: 0, completedAt: now,
+          leaseToken: null, leaseExpiresAt: null, updatedAt: now,
+        }).where(and(eq(exportRuns.id, claim.id), eq(exportRuns.leaseToken, claim.leaseToken)));
+        await tx.update(sources).set({ exportLeaseToken: null, exportLeaseExpiresAt: null, updatedAt: now })
+          .where(eq(sources.exportLeaseToken, claim.leaseToken));
+      });
       return "empty";
     }
 
@@ -91,66 +88,10 @@ export class MariaDbPackageExporter {
         archivePath, archiveHash, archiveBytes: archiveStats.size, verifiedAt: completedAt,
         leaseToken: null, leaseExpiresAt: null, updatedAt: completedAt,
       }).where(and(eq(exportRuns.id, claim.id), eq(exportRuns.leaseToken, claim.leaseToken)));
+      await tx.update(sources).set({ exportLeaseToken: null, exportLeaseExpiresAt: null, updatedAt: completedAt })
+        .where(eq(sources.exportLeaseToken, claim.leaseToken));
     });
     return "completed";
-  }
-
-  async exportChanged(options: IncrementalExportOptions): Promise<string | null> {
-    const maximumWorks = options.maximumWorks ?? 500;
-    if (!Number.isInteger(maximumWorks) || maximumWorks < 1 || maximumWorks > 5_000) {
-      throw new Error("maximumWorks must be between 1 and 5000");
-    }
-    const changed = await this.db.select({
-      sourceWorkId: works.sourceWorkId,
-      contentHash: works.contentHash,
-    }).from(works).where(and(
-      eq(works.sourceId, options.sourceId),
-      or(isNull(works.lastExportedHash), ne(works.lastExportedHash, works.contentHash)),
-    )).orderBy(asc(works.id)).limit(maximumWorks);
-    if (changed.length === 0) return null;
-
-    const previous = (await this.db.select({ packageId: exportRuns.packageId }).from(exportRuns).where(and(
-      eq(exportRuns.sourceId, options.sourceId), eq(exportRuns.status, "completed"),
-    )).orderBy(desc(exportRuns.completedAt)).limit(1))[0];
-    const packageId = randomUUID();
-    const previousPackageId = previous?.packageId ?? null;
-    await this.db.insert(exportRuns).values({
-      sourceId: options.sourceId,
-      packageId,
-      previousPackageId,
-      status: "writing",
-      outputDirectory: options.outputDirectory,
-      workCount: changed.length,
-    });
-
-    try {
-      await this.export({
-        ...options,
-        sourceWorkIds: changed.map((work) => work.sourceWorkId),
-        previousPackageId,
-        packageId,
-      });
-      const completedAt = new Date();
-      await this.db.transaction(async (tx) => {
-        for (const work of changed) {
-          await tx.update(works).set({
-            lastExportedHash: work.contentHash,
-            lastExportedAt: completedAt,
-            lastExportPackageId: packageId,
-          }).where(and(eq(works.sourceId, options.sourceId), eq(works.sourceWorkId, work.sourceWorkId)));
-        }
-        await tx.update(exportRuns).set({ status: "completed", completedAt, updatedAt: completedAt })
-          .where(eq(exportRuns.packageId, packageId));
-      });
-      return packageId;
-    } catch (error) {
-      await this.db.update(exportRuns).set({
-        status: "failed",
-        errorMessage: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-        completedAt: new Date(),
-      }).where(eq(exportRuns.packageId, packageId));
-      throw error;
-    }
   }
 
   async export(options: ExportOptions): Promise<string> {
