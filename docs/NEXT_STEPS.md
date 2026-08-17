@@ -31,6 +31,7 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed the initial Fastify API for health, safe source creation/configuration, ID-range jobs, job controls, and work browsing.
 - Completed the responsive React/Vite interface: overview, job creation/control, server-paginated list library, offline work/chapter reader, Browser ID, and granular source policy controls.
 - Completed optional constant-time API bearer authentication and the browser token unlock flow.
+- Completed authenticated Server-Sent Events with two-second job snapshots, transport heartbeats, browser reconnection, and polling fallback.
 - Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
@@ -272,8 +273,8 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. Server-Sent Events and detailed export inspection
-2. Asynchronous large-range planning and export jobs
+1. Asynchronous export jobs and detailed export inspection
+2. Asynchronous large-range planning
 3. Package-to-OTW import status and operator workflow
 4. Browser-level tests for dashboard/job/settings/auth flows
 5. One-command low-memory collector-to-OTW integration test

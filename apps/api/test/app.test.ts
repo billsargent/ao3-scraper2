@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildApp } from "../src/app.js";
+import { buildApp, encodeSse } from "../src/app.js";
 import type { ApiServices } from "../src/services.js";
 
 function services(): ApiServices {
@@ -39,6 +39,9 @@ const apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => Promise.all(apps.splice(0).map((app) => app.close())));
 
 describe("Fastify control API", () => {
+  it("encodes standards-compatible named SSE events", () => {
+    expect(encodeSse("jobs", { jobs: [{ id: 1 }] })).toBe('event: jobs\ndata: {"jobs":[{"id":1}]}\n\n');
+  });
   it("enforces an optional bearer token while leaving liveness public", async () => {
     const token = "a-secure-test-token-that-is-at-least-32-characters";
     const app = buildApp(services(), { apiToken: token }); apps.push(app);

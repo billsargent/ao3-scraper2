@@ -136,6 +136,8 @@ Starting the worker does not override a paused source:
 npm run worker:start
 ```
 
+The browser opens an authenticated Server-Sent Events stream at `/api/events`. Job snapshots are pushed every two seconds, with 15-second transport heartbeats and automatic browser reconnection. Thirty-second polling remains as a fallback.
+
 The worker:
 
 1. Claims one MariaDB task with a unique lease token.
@@ -206,7 +208,7 @@ docker compose down
 ## Current limitations
 
 - Authentication is a single operator bearer token, not multi-user accounts or role-based access.
-- Server-Sent Events are not implemented yet.
+- Events currently carry job snapshots; per-task log events and historical replay are not implemented yet.
 - Large range discovery still happens during the API request, capped at 10,000 IDs.
 - Export creation is implemented as a library and integration-tested but is not exposed through an asynchronous API endpoint yet.
 - A real contact address is required to run the worker; it is intentionally not committed to the repository.

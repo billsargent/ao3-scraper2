@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, setApiToken, type CollectionJob, type Source } from "./api.js";
+import { ApiError, api, setApiToken, streamEvents, type CollectionJob, type Source } from "./api.js";
 
 type Page = "dashboard" | "jobs" | "failures" | "library" | "settings";
 
@@ -23,6 +23,7 @@ export default function App() {
   }
 
   return <div className="app-shell">
+    <LiveEvents enabled={health.isSuccess} />
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">AR</div><div><strong>Archive Relay</strong><span>Offline preservation</span></div></div>
       <nav aria-label="Primary navigation">
@@ -51,8 +52,33 @@ export default function App() {
   </div>;
 }
 
+function LiveEvents({ enabled }: { enabled: boolean }) {
+  const client = useQueryClient();
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const run = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          await streamEvents((event) => {
+            if (event.type === "jobs" && event.data && typeof event.data === "object" && "jobs" in event.data) {
+              client.setQueryData(["jobs"], { jobs: (event.data as { jobs: CollectionJob[] }).jobs });
+            }
+          }, controller.signal);
+        } catch {
+          if (controller.signal.aborted) return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+      }
+    };
+    void run();
+    return () => controller.abort();
+  }, [enabled, client]);
+  return null;
+}
+
 function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavigate: (page: Page) => void }) {
-  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 5_000 });
+  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 30_000 });
   const works = useQuery({ queryKey: ["works"], queryFn: () => api.works(), refetchInterval: 10_000 });
   const list = jobs.data?.jobs ?? [];
   const workList = works.data?.works ?? [];
@@ -89,7 +115,7 @@ function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavig
 
 function Jobs({ source }: { source: Source | undefined }) {
   const client = useQueryClient();
-  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 4_000 });
+  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 30_000 });
   const [showForm, setShowForm] = useState(false);
   const control = useMutation({ mutationFn: ({ id, action }: { id: number; action: "pause" | "resume" | "cancel" }) => api.controlJob(id, action), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
   return <>

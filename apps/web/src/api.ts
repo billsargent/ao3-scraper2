@@ -95,6 +95,37 @@ export function setApiToken(token: string): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+export async function streamEvents(
+  onEvent: (event: { type: string; data: unknown }) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const token = getApiToken();
+  const response = await fetch("/api/events", {
+    signal,
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok || !response.body) throw new ApiError("Unable to open event stream", response.status);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (!signal.aborted) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const eventType = block.split("\n").find((line) => line.startsWith("event:"))?.slice(6).trim() ?? "message";
+      const dataLines = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart());
+      if (dataLines.length) {
+        try { onEvent({ type: eventType, data: JSON.parse(dataLines.join("\n")) }); } catch { /* Ignore malformed event payloads. */ }
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getApiToken();
   const response = await fetch(path, {

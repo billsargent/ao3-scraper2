@@ -74,6 +74,37 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
       return reply.status(503).send({ status: "not_ready" });
     }
   });
+  app.get("/api/events", async (request, reply) => {
+    reply.hijack();
+    const response = reply.raw;
+    response.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    let closed = false;
+    const sendJobs = async () => {
+      if (closed) return;
+      try {
+        const jobs = await services.listJobs(100, 0);
+        response.write(encodeSse("jobs", { jobs, observedAt: new Date().toISOString() }));
+      } catch {
+        response.write(encodeSse("system", { status: "database_unavailable", observedAt: new Date().toISOString() }));
+      }
+    };
+    await sendJobs();
+    const snapshotTimer = setInterval(() => void sendJobs(), 2_000);
+    const heartbeatTimer = setInterval(() => { if (!closed) response.write(": heartbeat\n\n"); }, 15_000);
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(snapshotTimer);
+      clearInterval(heartbeatTimer);
+    };
+    response.on("close", cleanup);
+    request.raw.on("aborted", cleanup);
+  });
   app.get("/api/sources", async () => ({ sources: await services.listSources() }));
   app.post("/api/sources", async (request, reply) => {
     const sourceId = await services.createSource(SourceCreateBody.parse(request.body));
@@ -137,6 +168,10 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     return chapter ? { chapter } : reply.status(404).send({ error: "not_found" });
   });
   return app;
+}
+
+export function encodeSse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 function safeTokenEqual(left: string, right: string): boolean {
