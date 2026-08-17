@@ -47,6 +47,7 @@ export interface ApiServices {
   getExportManifest(exportId: number): Promise<unknown | null>;
   getExportDownload(exportId: number): Promise<{ path: string; fileName: string; hash: string; bytes: number } | null>;
   updateImportStatus(exportId: number, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean>;
+  updateImportStatusByPackage(packageId: string, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean>;
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
   getChapter(workId: number, chapterId: number): Promise<unknown | null>;
@@ -164,6 +165,11 @@ export class MariaDbApiServices implements ApiServices {
     }).from(exportRuns).where(eq(exportRuns.id, exportId)).limit(1))[0];
     if (!row || row.status !== "completed" || !row.archivePath || !row.archiveHash || row.archiveBytes === null) return null;
     return { path: row.archivePath, fileName: basename(row.archivePath), hash: row.archiveHash, bytes: row.archiveBytes };
+  }
+
+  async updateImportStatusByPackage(packageId: string, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean> {
+    const row = (await this.db.select({ id: exportRuns.id }).from(exportRuns).where(eq(exportRuns.packageId, packageId)).limit(1))[0];
+    return row ? this.updateImportStatus(row.id, update) : false;
   }
 
   async updateImportStatus(exportId: number, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean> {

@@ -26,6 +26,8 @@ module PreservationImport
         package_path: @reader.path.to_s,
         status: "running"
       )
+      @notifier = CollectorNotifier.new(package_id: @reader.manifest.fetch("packageId"), run_id: @run.id)
+      @notifier.mark("importing") unless @dry_run
       load_package_indexes
       @source = PreservationSource.find_or_create_by!(key: @reader.manifest.dig("source", "key")) do |source|
         source.origin = @reader.manifest.dig("source", "origin")
@@ -34,9 +36,11 @@ module PreservationImport
       @reader.each_record("works.jsonl") { |record| import_work_safely(record) }
       import_series
       @run.update!(status: @dry_run ? "verified" : "completed", completed_at: Time.current)
+      @notifier&.mark("imported") unless @dry_run
       @run
     rescue StandardError => e
       @run&.update!(status: "failed", error_message: "#{e.class}: #{e.message}", completed_at: Time.current)
+      @notifier&.mark("failed", error: "#{e.class}: #{e.message}") unless @dry_run
       raise
     end
 

@@ -22,6 +22,7 @@ function services(): ApiServices {
     getExportManifest: vi.fn().mockResolvedValue(null),
     getExportDownload: vi.fn().mockResolvedValue(null),
     updateImportStatus: vi.fn().mockResolvedValue(true),
+    updateImportStatusByPackage: vi.fn().mockResolvedValue(true),
     listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getWork: vi.fn().mockResolvedValue(null),
     getChapter: vi.fn().mockResolvedValue(null),
@@ -103,6 +104,9 @@ describe("Fastify control API", () => {
     expect((await app.inject({ method: "GET", url: "/api/exports/99/download" })).statusCode).toBe(404);
     expect((await app.inject({ method: "PATCH", url: "/api/exports/3/import-status", payload: { status: "imported", otwImportRunId: "run-3" } })).statusCode).toBe(200);
     expect(mock.updateImportStatus).toHaveBeenCalledWith(3, { status: "imported", otwImportRunId: "run-3" });
+    const packageId = "00000000-0000-4000-8000-000000000003";
+    expect((await app.inject({ method: "PATCH", url: `/api/exports/by-package/${packageId}/import-status`, payload: { status: "importing" } })).statusCode).toBe(200);
+    expect(mock.updateImportStatusByPackage).toHaveBeenCalledWith(packageId, { status: "importing" });
   });
 
   it("controls jobs and returns not found records", async () => {

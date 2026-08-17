@@ -190,6 +190,15 @@ curl -X PATCH http://127.0.0.1:3001/api/exports/1/import-status \
 
 The download response includes `X-Content-SHA256` and `Content-Length` headers.
 
+The OTW importer can update status automatically. Configure its environment before running the rake import:
+
+```bash
+export COLLECTOR_CALLBACK_URL='http://collector-api:3001/'
+export COLLECTOR_API_TOKEN="$API_TOKEN"
+```
+
+It reports `importing`, then `imported` with its OTW import-run ID, or `failed` with an error. Callback failures are logged but do not roll back an otherwise successful OTW import.
+
 Run one export worker per collector database in this milestone; multi-worker export lineage serialization is planned hardening.
 
 ## Unpause source collection

@@ -15,6 +15,7 @@ const ChapterParams = z.object({
   id: z.coerce.number().int().positive(),
   chapterId: z.coerce.number().int().positive(),
 });
+const PackageParams = z.object({ packageId: z.string().uuid() });
 const ExportBody = z.object({
   sourceId: z.number().int().positive(),
   maximumWorks: z.number().int().min(1).max(5000).default(500),
@@ -195,6 +196,11 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
   app.patch("/api/exports/:id/import-status", async (request, reply) => {
     const { id } = IdParams.parse(request.params);
     const updated = await services.updateImportStatus(id, ImportStatusBody.parse(request.body));
+    return updated ? { updated: true } : reply.status(404).send({ error: "not_found" });
+  });
+  app.patch("/api/exports/by-package/:packageId/import-status", async (request, reply) => {
+    const { packageId } = PackageParams.parse(request.params);
+    const updated = await services.updateImportStatusByPackage(packageId, ImportStatusBody.parse(request.body));
     return updated ? { updated: true } : reply.status(404).send({ error: "not_found" });
   });
   app.get("/api/failures", async (request) => {

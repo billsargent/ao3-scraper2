@@ -292,6 +292,7 @@ docker compose \
   -e PRESERVATION_UPDATE_FIXTURE_PACKAGE=/otwa/spec/fixtures/preservation/package-v1-update \
   test bundle exec rspec \
   spec/services/preservation_import/package_reader_spec.rb \
+  spec/services/preservation_import/collector_notifier_spec.rb \
   spec/services/preservation_import/runner_spec.rb
 ```
 
