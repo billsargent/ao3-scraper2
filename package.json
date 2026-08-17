@@ -11,6 +11,8 @@
     "check": "npm run build && npm test",
     "db:generate": "npm run db:generate -w @ao3-offsite/database",
     "db:migrate": "npm run db:migrate -w @ao3-offsite/database",
+    "dataset:capture": "tsx scripts/capture-work-dataset.ts",
+    "dataset:reprocess": "tsx scripts/reprocess-work-dataset.ts",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"

@@ -51,7 +51,7 @@ export class PoliteSourceClient {
     this.origin = new URL(options.origin).origin;
     this.userAgent = options.userAgent.trim();
     if (!this.userAgent) throw new Error("A descriptive User-Agent is required");
-    this.minimumDelayMs = options.minimumDelayMs ?? 5_000;
+    this.minimumDelayMs = options.minimumDelayMs ?? 10_000;
     if (this.minimumDelayMs < 2_000) throw new Error("minimumDelayMs cannot be lower than 2000ms");
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.maximumAttempts = options.maximumAttempts ?? 3;

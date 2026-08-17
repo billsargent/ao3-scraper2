@@ -41,6 +41,19 @@ describe("AO3 entire-work parser", () => {
     expect(records.observations[0]!.contentHash).toBe(records.works[0]!.contentHash);
   });
 
+  it("parses AO3's single-chapter page shape", async () => {
+    const html = await readFile(fileURLToPath(new URL("./fixtures/work-single.html", import.meta.url)), "utf8");
+    const records = parseEntireWorkHtml(html, {
+      sourceUrl: "https://archiveofourown.org/works/54321?view_full_work=true",
+      capturedAt: "2026-08-17T12:00:00.000Z",
+    });
+    expect(records.chapters).toMatchObject([{
+      sourceChapterId: "work:54321",
+      position: 1,
+      contentHtml: "<p>Sanitized chapter content.</p>",
+    }]);
+  });
+
   it("fails closed when an entire-work page has no chapter content", () => {
     expect(() => parseEntireWorkHtml("<h2 class='title heading'>Broken</h2>", {
       sourceUrl: "https://archiveofourown.org/works/999",

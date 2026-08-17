@@ -9,6 +9,7 @@
   "references": [
     { "path": "../contracts" },
     { "path": "../database" },
+    { "path": "../package-tools" },
     { "path": "../scraper-core" }
   ]
 }

@@ -20,6 +20,15 @@ The project already has:
 
 The next objective is to turn these proven components into a resumable operator-controlled application.
 
+### Progress since this roadmap was written
+
+- Completed atomic MariaDB task claiming, lease ownership, heartbeats, expired-lease recovery, pause/resume/cancel, and transactional counters.
+- Completed snapshot package export from normalized MariaDB records.
+- Captured the approved first Harry Potter search-results page once at a 10-second minimum delay. Eighteen of twenty work responses were retained and reprocessed offline; two HTTP 525 responses were left alone.
+- Added a sanitized single-chapter fixture and now support both AO3 single- and multi-chapter page shapes.
+- Remaining Milestone 1 work: daily-budget accounting, distributed source request slots, retry policy wiring, and the long-running worker process.
+- Remaining Milestone 2 work: persistent export/import tracking and automatic incremental selection by previous exported hash.
+
 ---
 
 ## Milestone 1 — durable MariaDB task execution

@@ -1,0 +1,1 @@
+ALTER TABLE `collection_tasks` ADD `leased_by` varchar(255);

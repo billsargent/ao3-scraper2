@@ -148,6 +148,24 @@ function parseChapters($: CheerioAPI, sourceWorkId: string): Chapter[] {
       contentHash: hash(contentHtml),
     });
   });
+  if (chapters.length === 0) {
+    const singleContent = $("#chapters > .userstuff").first().html()?.trim() ?? "";
+    if (singleContent) {
+      chapters.push({
+        sourceWorkId,
+        sourceChapterId: `work:${sourceWorkId}`,
+        position: 1,
+        title: "",
+        summaryHtml: "",
+        notesHtml: "",
+        contentHtml: singleContent,
+        endNotesHtml: "",
+        publishedAt: null,
+        wordCount: null,
+        contentHash: hash(singleContent),
+      });
+    }
+  }
   if (chapters.length === 0) throw new ParseError(`Work ${sourceWorkId} contains no entire-work chapters`);
   return chapters;
 }
