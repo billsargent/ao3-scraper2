@@ -150,6 +150,30 @@ The worker:
 
 Retryable failures use bounded exponential backoff with jitter. The default limit is six processing attempts. A crashed worker's expired lease is recovered when another worker starts.
 
+## Start the export worker
+
+Transfer-package requests use a separate durable worker so large exports do not block the API or source collector:
+
+```bash
+npm run export-worker:start
+```
+
+Queue and inspect exports from the **Transfer packages** UI, or use:
+
+```bash
+curl -X POST http://127.0.0.1:3001/api/exports \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"sourceId": 1, "maximumWorks": 500}'
+
+curl -H "Authorization: Bearer $API_TOKEN" \
+  http://127.0.0.1:3001/api/exports
+```
+
+The first non-empty export is a snapshot. Later exports contain only works whose content hash changed and link to the previous completed package. Requests with no changed works finish as `empty`. Package files are written under `EXPORT_DIRECTORY/<package-id>` and checksummed before works are marked exported.
+
+Run one export worker per collector database in this milestone; multi-worker export lineage serialization is planned hardening.
+
 ## Unpause source collection
 
 Do this only after confirming the job range, User-Agent contact, delay, and budget:

@@ -1,9 +1,10 @@
 import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
-import { CollectorStore, TaskLeaseStore, planIdRange } from "@ao3-offsite/collector";
+import { CollectorStore, ExportQueueStore, TaskLeaseStore, planIdRange } from "@ao3-offsite/collector";
 import {
   chapters,
   collectionJobs,
   collectionTasks,
+  exportRuns,
   sources,
   works,
   type CollectorDatabase,
@@ -38,6 +39,9 @@ export interface ApiServices {
   cancelJob(jobId: number): Promise<void>;
   retryJobFailures(jobId: number): Promise<void>;
   listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
+  createExport(sourceId: number, maximumWorks: number): Promise<{ id: number; packageId: string }>;
+  listExports(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
+  getExport(exportId: number): Promise<unknown | null>;
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
   getChapter(workId: number, chapterId: number): Promise<unknown | null>;
@@ -46,10 +50,12 @@ export interface ApiServices {
 export class MariaDbApiServices implements ApiServices {
   private readonly collector: CollectorStore;
   private readonly leases: TaskLeaseStore;
+  private readonly exports: ExportQueueStore;
 
-  constructor(private readonly db: CollectorDatabase) {
+  constructor(private readonly db: CollectorDatabase, private readonly exportRoot = "./data/exports") {
     this.collector = new CollectorStore(db);
     this.leases = new TaskLeaseStore(db);
+    this.exports = new ExportQueueStore(db);
   }
 
   async ready(): Promise<boolean> {
@@ -113,6 +119,21 @@ export class MariaDbApiServices implements ApiServices {
     const total = (await this.db.select({ value: count() }).from(collectionTasks)
       .where(inArray(collectionTasks.status, [...failureStates])))[0]?.value ?? 0;
     return { items, total };
+  }
+
+  createExport(sourceId: number, maximumWorks: number): Promise<{ id: number; packageId: string }> {
+    return this.exports.createRequest(sourceId, this.exportRoot, maximumWorks);
+  }
+
+  async listExports(limit: number, offset: number): Promise<{ items: unknown[]; total: number }> {
+    const items = await this.db.select().from(exportRuns).orderBy(desc(exportRuns.id)).limit(limit).offset(offset);
+    const total = (await this.db.select({ value: count() }).from(exportRuns))[0]?.value ?? 0;
+    return { items, total };
+  }
+
+  getExport(exportId: number): Promise<unknown | null> {
+    return this.db.select().from(exportRuns).where(eq(exportRuns.id, exportId)).limit(1)
+      .then((rows) => rows[0] ?? null);
   }
 
   async listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }> {

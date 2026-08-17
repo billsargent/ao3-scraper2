@@ -28,6 +28,8 @@ import {
 import { readTransferPackage } from "@ao3-offsite/package-tools";
 import { parseEntireWorkHtml, PoliteSourceClient } from "@ao3-offsite/scraper-core";
 import { ContentAddressedBlobStore } from "../src/blob-store.js";
+import { ExportQueueStore } from "../src/export-queue.js";
+import { ExportWorker } from "../src/export-worker.js";
 import { MariaDbPackageExporter } from "../src/exporter.js";
 import { WorkTaskProcessor } from "../src/processor.js";
 import { SourceBudgetStore } from "../src/source-budget-store.js";
@@ -251,40 +253,35 @@ integration("CollectorStore with MariaDB", () => {
     expect(firstCount(await db.select({ value: count() }).from(workTags).where(eq(workTags.workId, workId)))).toBe(3);
     expect(firstCount(await db.select({ value: count() }).from(observations).where(eq(observations.sourceWorkId, "12345")))).toBe(1);
 
-    const firstOutput = await mkdtemp(join(tmpdir(), "ao3-mariadb-export-"));
-    const secondOutput = await mkdtemp(join(tmpdir(), "ao3-mariadb-export-"));
+    const exportRoot = await mkdtemp(join(tmpdir(), "ao3-mariadb-exports-"));
     try {
-      const exporter = new MariaDbPackageExporter(db);
-      const firstPackageId = await exporter.exportChanged({
-        sourceId, sourceKey: "integration-test", origin: "https://archiveofourown.org",
-        outputDirectory: firstOutput,
-      });
-      const exported = await readTransferPackage(firstOutput);
-      expect(exported.manifest).toMatchObject({ packageId: firstPackageId, packageType: "snapshot", previousPackageId: null });
+      const queue = new ExportQueueStore(db);
+      const worker = new ExportWorker("integration-exporter", queue, new MariaDbPackageExporter(db), 30_000);
+      const firstRequest = await queue.createRequest(sourceId, exportRoot, 100);
+      expect(await worker.processOne()).toBe(true);
+      const exported = await readTransferPackage(join(exportRoot, firstRequest.packageId));
+      expect(exported.manifest).toMatchObject({ packageId: firstRequest.packageId, packageType: "snapshot", previousPackageId: null });
       expect(exported.records.works).toMatchObject([{ title: "Updated integration title" }]);
       expect(exported.records.chapters).toHaveLength(1);
       expect(exported.records.workTags).toHaveLength(3);
       expect(exported.records.seriesWorks).toHaveLength(1);
-      expect(await exporter.exportChanged({
-        sourceId, sourceKey: "integration-test", origin: "https://archiveofourown.org",
-        outputDirectory: secondOutput,
-      })).toBeNull();
+
+      const emptyRequest = await queue.createRequest(sourceId, exportRoot, 100);
+      expect(await worker.processOne()).toBe(true);
+      expect((await db.select().from(exportRuns).where(eq(exportRuns.id, emptyRequest.id)))[0]!.status).toBe("empty");
 
       await db.update(works).set({ title: "Changed after export", contentHash: `sha256:${"c".repeat(64)}` })
         .where(eq(works.id, workId));
-      const secondPackageId = await exporter.exportChanged({
-        sourceId, sourceKey: "integration-test", origin: "https://archiveofourown.org",
-        outputDirectory: secondOutput,
-      });
-      const incremental = await readTransferPackage(secondOutput);
+      const secondRequest = await queue.createRequest(sourceId, exportRoot, 100);
+      expect(await worker.processOne()).toBe(true);
+      const incremental = await readTransferPackage(join(exportRoot, secondRequest.packageId));
       expect(incremental.manifest).toMatchObject({
-        packageId: secondPackageId, packageType: "incremental", previousPackageId: firstPackageId,
+        packageId: secondRequest.packageId, packageType: "incremental", previousPackageId: firstRequest.packageId,
       });
       expect(incremental.records.works).toMatchObject([{ title: "Changed after export" }]);
       expect((await db.select().from(exportRuns).where(eq(exportRuns.status, "completed")))).toHaveLength(2);
     } finally {
-      await rm(firstOutput, { recursive: true, force: true });
-      await rm(secondOutput, { recursive: true, force: true });
+      await rm(exportRoot, { recursive: true, force: true });
     }
   });
 });

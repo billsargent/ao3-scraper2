@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, setApiToken, streamEvents, type CollectionJob, type Source } from "./api.js";
+import { ApiError, api, setApiToken, streamEvents, type CollectionJob, type ExportRecord, type Source } from "./api.js";
 
-type Page = "dashboard" | "jobs" | "failures" | "library" | "settings";
+type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings";
 
 const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "dashboard", label: "Overview", icon: <Icon path="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" /> },
   { id: "jobs", label: "Collection jobs", icon: <Icon path="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" /> },
   { id: "failures", label: "Failure review", icon: <Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /> },
+  { id: "exports", label: "Transfer packages", icon: <Icon path="M5 3h10l4 4v14H5V3Zm9 0v5h5M9 13h6m-6 4h6" /> },
   { id: "library", label: "Archive library", icon: <Icon path="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Zm0 15A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 18.5" /> },
   { id: "settings", label: "Source settings", icon: <Icon path="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 6a1.7 1.7 0 0 0 1.04-1.55V4.3h3v.15A1.7 1.7 0 0 0 15.74 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z" /> },
 ];
@@ -45,6 +46,7 @@ export default function App() {
         {page === "dashboard" && <Dashboard source={source} onNavigate={setPage} />}
         {page === "jobs" && <Jobs source={source} />}
         {page === "failures" && <Failures />}
+        {page === "exports" && <Exports source={source} />}
         {page === "library" && <Library />}
         {page === "settings" && <Settings source={source} />}
       </div>
@@ -63,6 +65,10 @@ function LiveEvents({ enabled }: { enabled: boolean }) {
           await streamEvents((event) => {
             if (event.type === "jobs" && event.data && typeof event.data === "object" && "jobs" in event.data) {
               client.setQueryData(["jobs"], { jobs: (event.data as { jobs: CollectionJob[] }).jobs });
+            }
+            if (event.type === "exports" && event.data && typeof event.data === "object" && "exports" in event.data) {
+              const payload = event.data as { exports: ExportRecord[]; total: number };
+              client.setQueryData(["exports", 0], payload);
             }
           }, controller.signal);
         } catch {
@@ -150,6 +156,27 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
   </form></div>;
+}
+
+function Exports({ source }: { source: Source | undefined }) {
+  const client = useQueryClient();
+  const pageSize = 25;
+  const [page, setPage] = useState(0);
+  const [maximumWorks, setMaximumWorks] = useState(500);
+  const exportsQuery = useQuery({ queryKey: ["exports", page], queryFn: () => api.exports(page, pageSize), refetchInterval: 30_000 });
+  const create = useMutation({
+    mutationFn: () => source ? api.createExport({ sourceId: source.id, maximumWorks }) : Promise.reject(new Error("No source configured")),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["exports"] }),
+  });
+  const rows = exportsQuery.data?.exports ?? [];
+  const total = exportsQuery.data?.total ?? 0;
+  return <>
+    <div className="page-actions"><div><h2>Transfer packages</h2><p>Durable snapshot and incremental exports ready for the OTW importer.</p></div><div className="export-create"><label>Maximum works<input type="number" min="1" max="5000" value={maximumWorks} onChange={(event) => setMaximumWorks(Number(event.target.value))} /></label><button className="primary" disabled={!source || create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Queueing…" : "Queue export"}</button></div></div>
+    <Panel title={`${formatNumber(total)} export requests`}>
+      {rows.length ? <><div className="table-wrap"><table><thead><tr><th>Package</th><th>Type / parent</th><th>Status</th><th>Works</th><th>Output</th><th>Completed</th></tr></thead><tbody>{rows.map((record) => <tr key={record.id}><td><b>{record.packageId.slice(0, 8)}…</b><small>Export #{record.id}</small></td><td>{record.previousPackageId ? <><b>Incremental</b><small>After {record.previousPackageId.slice(0, 8)}…</small></> : <><b>Snapshot</b><small>First package</small></>}</td><td><Status status={record.status} />{record.errorMessage && <small className="export-error">{record.errorMessage}</small>}</td><td>{formatNumber(record.workCount)} / {formatNumber(record.maximumWorks)}</td><td className="path-cell" title={record.outputDirectory}>{record.outputDirectory}</td><td>{record.completedAt ? formatDateTime(record.completedAt) : "—"}</td></tr>)}</tbody></table></div><div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page {page + 1}</span><button disabled={(page + 1) * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next →</button></div></> : <Empty title="No transfer packages yet" text="Queue an export after works have been collected. The export worker writes and verifies it asynchronously." />}
+      {create.error && <p className="form-error">{create.error.message}</p>}
+    </Panel>
+  </>;
 }
 
 function Failures() {

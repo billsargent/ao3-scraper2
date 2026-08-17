@@ -16,6 +16,9 @@ function services(): ApiServices {
     cancelJob: vi.fn().mockResolvedValue(undefined),
     retryJobFailures: vi.fn().mockResolvedValue(undefined),
     listFailures: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    createExport: vi.fn().mockResolvedValue({ id: 3, packageId: "00000000-0000-4000-8000-000000000003" }),
+    listExports: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    getExport: vi.fn().mockResolvedValue(null),
     listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getWork: vi.fn().mockResolvedValue(null),
     getChapter: vi.fn().mockResolvedValue(null),
@@ -84,6 +87,15 @@ describe("Fastify control API", () => {
     expect(response.json()).toMatchObject({ total: 0, limit: 10, offset: 20, q: "Potter" });
     expect((await app.inject({ method: "GET", url: "/api/works/1/chapters/2" })).statusCode).toBe(404);
     expect(mock.getChapter).toHaveBeenCalledWith(1, 2);
+  });
+
+  it("queues and inspects asynchronous exports", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const queued = await app.inject({ method: "POST", url: "/api/exports", payload: { sourceId: 1, maximumWorks: 100 } });
+    expect(queued.statusCode).toBe(202);
+    expect(mock.createExport).toHaveBeenCalledWith(1, 100);
+    expect((await app.inject({ method: "GET", url: "/api/exports?limit=25&offset=0" })).json()).toMatchObject({ total: 0, exports: [] });
+    expect((await app.inject({ method: "GET", url: "/api/exports/99" })).statusCode).toBe(404);
   });
 
   it("controls jobs and returns not found records", async () => {

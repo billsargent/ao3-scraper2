@@ -30,9 +30,9 @@ Implemented:
 - Database-backed distributed request slots, UTC request/byte budgets, operating windows, and response accounting
 - Configurable Browser ID/User-Agent with a standard Chrome default, adult-content policy, timeout, response-size, and retry controls
 - Continuously running worker with graceful shutdown and bounded retry scheduling
-- MariaDB-to-transfer-package exporter with snapshot/incremental lineage and exported-hash tracking
+- Durable asynchronous MariaDB-to-package export queue and worker with snapshot/incremental lineage, empty-run detection, checksums, and exported-hash tracking
 - Fastify control API with optional constant-time bearer-token authentication and authenticated Server-Sent Events
-- Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, paginated library, offline chapter reader, and granular source policy
+- Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, asynchronous transfer-package inspection, paginated library, offline chapter reader, and granular source policy
 - Limited live validation dataset from the first Harry Potter search-results page
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests
@@ -182,8 +182,10 @@ The OTW importer has also been installed into the reference OTW checkout and run
 
 ## Next steps
 
-1. Add asynchronous export endpoints and detailed export inspection.
-2. Move large-range planning and package export into asynchronous worker tasks.
-3. Add package-to-OTW import status tracking and an operator import workflow.
-4. Add browser-level tests and automate the low-memory OTW end-to-end integration test.
-5. Add comments and embedded assets only after the core UI pipeline is reliable.
+1. Move large-range planning into asynchronous discovery jobs.
+2. Add package download/verification and OTW import-status endpoints.
+3. Add multi-worker export-lineage serialization.
+4. Add browser-level tests and automate the low-memory OTW integration path.
+5. Add comments and embedded assets only after the core pipeline is reliable.
+
+The detailed roadmap is maintained in `docs/NEXT_STEPS.md`.

@@ -1,5 +1,7 @@
 export * from "./blob-store.js";
 export * from "./exporter.js";
+export * from "./export-queue.js";
+export * from "./export-worker.js";
 export * from "./planner.js";
 export * from "./processor.js";
 export * from "./source-budget-store.js";

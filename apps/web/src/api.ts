@@ -32,6 +32,20 @@ export interface CollectionJob {
   taskCounts?: Record<string, number>;
 }
 
+export interface ExportRecord {
+  id: number;
+  sourceId: number;
+  packageId: string;
+  previousPackageId: string | null;
+  status: "queued" | "leased" | "writing" | "completed" | "empty" | "failed";
+  outputDirectory: string;
+  maximumWorks: number;
+  workCount: number;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export interface FailureRecord {
   taskId: number;
   jobId: number;
@@ -156,6 +170,9 @@ export const api = {
   controlJob: (id: number, action: "pause" | "resume" | "cancel") => request<{ updated: boolean }>(`/api/jobs/${id}/${action}`, { method: "POST" }),
   retryFailures: (id: number) => request<{ updated: boolean }>(`/api/jobs/${id}/retry-failures`, { method: "POST" }),
   failures: (page = 0, limit = 25) => request<{ failures: FailureRecord[]; total: number }>(`/api/failures?limit=${limit}&offset=${page * limit}`),
+  exports: (page = 0, limit = 25) => request<{ exports: ExportRecord[]; total: number }>(`/api/exports?limit=${limit}&offset=${page * limit}`),
+  createExport: (body: { sourceId: number; maximumWorks: number }) => request<{ id: number; packageId: string }>("/api/exports", { method: "POST", body: JSON.stringify(body) }),
+  exportDetail: (id: number) => request<{ export: ExportRecord }>(`/api/exports/${id}`),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

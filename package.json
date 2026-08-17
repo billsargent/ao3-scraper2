@@ -15,6 +15,7 @@
     "dataset:reprocess": "tsx scripts/reprocess-work-dataset.ts",
     "dataset:load": "tsx scripts/load-package-into-collector.ts",
     "worker:start": "npm run start -w @ao3-offsite/worker",
+    "export-worker:start": "npm run start -w @ao3-offsite/export-worker",
     "api:start": "npm run start -w @ao3-offsite/api",
     "web:dev": "npm run dev -w @ao3-offsite/web",
     "web:build": "npm run build -w @ao3-offsite/web",

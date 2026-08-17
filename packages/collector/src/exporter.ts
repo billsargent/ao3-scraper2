@@ -15,6 +15,7 @@ import {
   type CollectorDatabase,
 } from "@ao3-offsite/database";
 import { writeTransferPackage } from "@ao3-offsite/package-tools";
+import type { ClaimedExport } from "./export-queue.js";
 
 export interface ExportOptions {
   sourceId: number;
@@ -36,6 +37,49 @@ export interface IncrementalExportOptions {
 
 export class MariaDbPackageExporter {
   constructor(private readonly db: CollectorDatabase) {}
+
+  async processClaimed(claim: ClaimedExport): Promise<"completed" | "empty"> {
+    const changed = await this.db.select({
+      sourceWorkId: works.sourceWorkId,
+      contentHash: works.contentHash,
+    }).from(works).where(and(
+      eq(works.sourceId, claim.sourceId),
+      or(isNull(works.lastExportedHash), ne(works.lastExportedHash, works.contentHash)),
+    )).orderBy(asc(works.id)).limit(claim.maximumWorks);
+    if (changed.length === 0) {
+      const now = new Date();
+      await this.db.update(exportRuns).set({
+        status: "empty", workCount: 0, completedAt: now,
+        leaseToken: null, leaseExpiresAt: null, updatedAt: now,
+      }).where(and(eq(exportRuns.id, claim.id), eq(exportRuns.leaseToken, claim.leaseToken)));
+      return "empty";
+    }
+
+    await this.export({
+      sourceId: claim.sourceId,
+      sourceKey: claim.sourceKey,
+      origin: claim.origin,
+      sourceWorkIds: changed.map((work) => work.sourceWorkId),
+      outputDirectory: claim.outputDirectory,
+      previousPackageId: claim.previousPackageId,
+      packageId: claim.packageId,
+    });
+    const completedAt = new Date();
+    await this.db.transaction(async (tx) => {
+      for (const work of changed) {
+        await tx.update(works).set({
+          lastExportedHash: work.contentHash,
+          lastExportedAt: completedAt,
+          lastExportPackageId: claim.packageId,
+        }).where(and(eq(works.sourceId, claim.sourceId), eq(works.sourceWorkId, work.sourceWorkId)));
+      }
+      await tx.update(exportRuns).set({
+        status: "completed", workCount: changed.length, completedAt,
+        leaseToken: null, leaseExpiresAt: null, updatedAt: completedAt,
+      }).where(and(eq(exportRuns.id, claim.id), eq(exportRuns.leaseToken, claim.leaseToken)));
+    });
+    return "completed";
+  }
 
   async exportChanged(options: IncrementalExportOptions): Promise<string | null> {
     const maximumWorks = options.maximumWorks ?? 500;

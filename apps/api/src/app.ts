@@ -14,6 +14,10 @@ const ChapterParams = z.object({
   id: z.coerce.number().int().positive(),
   chapterId: z.coerce.number().int().positive(),
 });
+const ExportBody = z.object({
+  sourceId: z.number().int().positive(),
+  maximumWorks: z.number().int().min(1).max(5000).default(500),
+});
 const IdRangeBody = z.object({
   sourceId: z.number().int().positive(),
   start: z.number().int().positive(),
@@ -87,8 +91,13 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     const sendJobs = async () => {
       if (closed) return;
       try {
-        const jobs = await services.listJobs(100, 0);
-        response.write(encodeSse("jobs", { jobs, observedAt: new Date().toISOString() }));
+        const [jobs, exports] = await Promise.all([
+          services.listJobs(100, 0),
+          services.listExports(100, 0),
+        ]);
+        const observedAt = new Date().toISOString();
+        response.write(encodeSse("jobs", { jobs, observedAt }));
+        response.write(encodeSse("exports", { exports: exports.items, total: exports.total, observedAt }));
       } catch {
         response.write(encodeSse("system", { status: "database_unavailable", observedAt: new Date().toISOString() }));
       }
@@ -146,6 +155,21 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     const { id } = IdParams.parse(request.params);
     await services.retryJobFailures(id);
     return { updated: true };
+  });
+  app.post("/api/exports", async (request, reply) => {
+    const body = ExportBody.parse(request.body);
+    const created = await services.createExport(body.sourceId, body.maximumWorks);
+    return reply.status(202).send(created);
+  });
+  app.get("/api/exports", async (request) => {
+    const { limit, offset } = Pagination.parse(request.query);
+    const result = await services.listExports(limit, offset);
+    return { exports: result.items, total: result.total, limit, offset };
+  });
+  app.get("/api/exports/:id", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const result = await services.getExport(id);
+    return result ? { export: result } : reply.status(404).send({ error: "not_found" });
   });
   app.get("/api/failures", async (request) => {
     const { limit, offset } = Pagination.parse(request.query);

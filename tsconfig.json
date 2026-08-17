@@ -8,6 +8,7 @@
     { "path": "./packages/scraper-core" },
     { "path": "./apps/package-cli" },
     { "path": "./apps/api" },
+    { "path": "./apps/export-worker" },
     { "path": "./apps/worker" },
     { "path": "./apps/web" }
   ]
