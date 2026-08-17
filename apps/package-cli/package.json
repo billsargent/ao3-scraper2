@@ -1,0 +1,11 @@
+{
+  "name": "@ao3-offsite/package-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "tsc -b" },
+  "dependencies": {
+    "@ao3-offsite/contracts": "0.1.0",
+    "@ao3-offsite/package-tools": "0.1.0"
+  }
+}

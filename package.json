@@ -1,0 +1,25 @@
+{
+  "name": "ao3-offsite-pipeline",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run build && npm test",
+    "package:sample": "tsx apps/package-cli/src/index.ts sample",
+    "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
+    "package:verify": "tsx apps/package-cli/src/index.ts verify"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.1.1"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  }
+}

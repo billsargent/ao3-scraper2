@@ -1,0 +1,24 @@
+{
+  "format": "ao3-offsite-transfer",
+  "formatVersion": 1,
+  "packageId": "3c68d0d1-4b19-4587-b5e7-4fe4660fddc8",
+  "packageType": "incremental",
+  "source": {
+    "key": "ao3",
+    "origin": "https://archiveofourown.org"
+  },
+  "createdAt": "2026-08-17T12:56:15.271Z",
+  "collectorVersion": "0.1.0",
+  "previousPackageId": "3115c552-4e50-4896-a6da-498b8820523c",
+  "records": {
+    "authors": 1,
+    "workAuthors": 1,
+    "works": 1,
+    "chapters": 2,
+    "tags": 4,
+    "workTags": 4,
+    "series": 1,
+    "seriesWorks": 1,
+    "observations": 1
+  }
+}
