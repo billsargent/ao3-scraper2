@@ -35,6 +35,7 @@ Implemented:
 - Fastify control API with optional constant-time bearer-token authentication and authenticated Server-Sent Events
 - Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, asynchronous transfer-package inspection, paginated library, offline chapter reader, and granular source policy
 - Playwright browser coverage for authentication, job creation/control, pagination, reading, source policy, package inspection, download, and OTW status
+- One-command low-memory pipeline proof from fixture parsing through MariaDB export into native OTW works, chapters, tags, source identities, and series
 - Limited live validation dataset from the first Harry Potter search-results page
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests
@@ -184,8 +185,8 @@ The OTW importer has also been installed into the reference OTW checkout and run
 
 ## Next steps
 
-1. Automate the low-memory collector-to-OTW integration path.
-2. Add signed deployment artifacts and backup/restore automation.
+1. Add signed deployment artifacts and backup/restore automation.
+2. Add production process supervision and health monitoring.
 3. Add comments and embedded assets only after the core pipeline is reliable.
 
 The detailed roadmap is maintained in `docs/NEXT_STEPS.md`.

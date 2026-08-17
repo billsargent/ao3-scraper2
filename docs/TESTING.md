@@ -45,6 +45,35 @@ Playwright starts a Vite server and intercepts API calls with deterministic fixt
 - Authenticated `.tar.gz` download
 - OTW import-status action
 
-## OTW importer
+## Full collector-to-OTW pipeline
 
-Follow `docs/DOCKER_SETUP.md` for the disposable low-memory OTW environment. Run the package reader, collector notifier, and importer specs together. Never run reset/migration test scripts against an important OTW database.
+Run the complete disposable integration path with one command:
+
+```bash
+npm run test:full-pipeline
+```
+
+Optional environment variables:
+
+```bash
+OTW_DIR=/path/to/otwarchive
+SKIP_FAST_CHECKS=true
+KEEP_OTW_CONTAINERS=true
+```
+
+The command:
+
+1. Starts collector MariaDB and applies migrations.
+2. Parses a local AO3-shaped fixture without network access.
+3. Persists native collector records.
+4. Creates and verifies a transfer package through the export queue.
+5. Installs the importer overlay into a disposable OTW checkout.
+6. Starts low-memory MariaDB, Redis, Memcached, and Elasticsearch for OTW.
+7. Resets and seeds the OTW test database.
+8. Imports the generated collector package.
+9. Verifies native OTW works, chapters, tags, source identities, and series.
+10. Runs package-reader, callback, idempotency, and incremental-update specs.
+
+The script cleans up OTW containers unless `KEEP_OTW_CONTAINERS=true`; named volumes remain. It must never target an important OTW database.
+
+Latest sandbox result: **9 RSpec examples, 0 failures**, ending with `FULL PIPELINE PASSED`.

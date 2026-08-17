@@ -38,7 +38,8 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed optional Rails-to-collector callbacks for automatic `importing`, `imported`, and `failed` status with OTW run IDs.
 - Completed multi-worker export safety with per-source leases, transactional sequence/parent assignment, crash reuse, and parallel exports across different sources.
 - Completed Playwright browser tests for authentication, job creation/control, source policy, paginated reading, package inspection/download, and OTW status.
-- Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
+- Completed the one-command low-memory collector-to-OTW proof: local fixture → MariaDB → verified export → seeded OTW test database → native archive records.
+- Remaining work has moved from core pipeline correctness to deployment, operations, and optional content scope: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
 ---
@@ -279,9 +280,9 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. One-command low-memory collector-to-OTW integration test
-2. Signed/automated deployment artifacts
-3. Backup/restore automation and deployment profiles
+1. Signed/automated deployment artifacts
+2. Backup/restore automation and deployment profiles
+3. Production process supervision, metrics, and alerting
 4. One-command low-memory collector-to-OTW integration test
 5. Deployment and backup profiles
 
