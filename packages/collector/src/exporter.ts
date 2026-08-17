@@ -1,4 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { basename, dirname } from "node:path";
+import * as tar from "tar";
 import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { FORMAT_VERSION, type TransferRecords } from "@ao3-offsite/contracts";
 import {
@@ -14,7 +18,7 @@ import {
   workTags,
   type CollectorDatabase,
 } from "@ao3-offsite/database";
-import { writeTransferPackage } from "@ao3-offsite/package-tools";
+import { readTransferPackage, writeTransferPackage } from "@ao3-offsite/package-tools";
 import type { ClaimedExport } from "./export-queue.js";
 
 export interface ExportOptions {
@@ -64,6 +68,15 @@ export class MariaDbPackageExporter {
       previousPackageId: claim.previousPackageId,
       packageId: claim.packageId,
     });
+    await readTransferPackage(claim.outputDirectory);
+    const archivePath = `${claim.outputDirectory}.tar.gz`;
+    await tar.c({
+      gzip: true,
+      portable: true,
+      cwd: dirname(claim.outputDirectory),
+      file: archivePath,
+    }, [basename(claim.outputDirectory)]);
+    const [archiveHash, archiveStats] = await Promise.all([hashFile(archivePath), stat(archivePath)]);
     const completedAt = new Date();
     await this.db.transaction(async (tx) => {
       for (const work of changed) {
@@ -75,6 +88,7 @@ export class MariaDbPackageExporter {
       }
       await tx.update(exportRuns).set({
         status: "completed", workCount: changed.length, completedAt,
+        archivePath, archiveHash, archiveBytes: archiveStats.size, verifiedAt: completedAt,
         leaseToken: null, leaseExpiresAt: null, updatedAt: completedAt,
       }).where(and(eq(exportRuns.id, claim.id), eq(exportRuns.leaseToken, claim.leaseToken)));
     });
@@ -271,4 +285,14 @@ function requiredMap<K, V>(map: Map<K, V>, key: K): V {
   const value = map.get(key);
   if (value === undefined) throw new Error(`Missing related work ${String(key)}`);
   return value;
+}
+
+function hashFile(path: string): Promise<`sha256:${string}`> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const input = createReadStream(path);
+    input.on("error", reject);
+    input.on("data", (chunk) => hash.update(chunk));
+    input.on("end", () => resolve(`sha256:${hash.digest("hex")}`));
+  });
 }

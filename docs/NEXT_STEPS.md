@@ -34,6 +34,7 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed authenticated Server-Sent Events with two-second job and export snapshots, transport heartbeats, browser reconnection, and polling fallback.
 - Completed the durable asynchronous export queue, standalone export worker, snapshot/incremental lineage, empty-run handling, and Transfer Packages UI.
 - Completed asynchronous ID-range planning with MariaDB leases, bounded inserts, cursor checkpoints, idempotent recovery, a standalone planner worker, and UI planning state.
+- Completed verified `.tar.gz` package artifacts, authenticated manifest/download endpoints, archive SHA-256/size metadata, and OTW import-status tracking in the Transfer Packages inspector.
 - Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
@@ -275,7 +276,7 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. Package download/verification and OTW import-status workflow
+1. Direct OTW importer callback/status synchronization
 2. Multi-worker export lineage serialization
 3. Browser-level tests for dashboard, jobs, exports, settings, and authentication
 4. One-command low-memory collector-to-OTW integration test

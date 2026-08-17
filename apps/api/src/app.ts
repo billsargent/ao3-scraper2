@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { createReadStream } from "node:fs";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { STANDARD_CHROME_USER_AGENT } from "@ao3-offsite/database";
@@ -17,6 +18,11 @@ const ChapterParams = z.object({
 const ExportBody = z.object({
   sourceId: z.number().int().positive(),
   maximumWorks: z.number().int().min(1).max(5000).default(500),
+});
+const ImportStatusBody = z.object({
+  status: z.enum(["not_imported", "importing", "imported", "failed"]),
+  error: z.string().max(5000).nullable().optional(),
+  otwImportRunId: z.string().max(255).nullable().optional(),
 });
 const IdRangeBody = z.object({
   sourceId: z.number().int().positive(),
@@ -170,6 +176,26 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     const { id } = IdParams.parse(request.params);
     const result = await services.getExport(id);
     return result ? { export: result } : reply.status(404).send({ error: "not_found" });
+  });
+  app.get("/api/exports/:id/manifest", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const result = await services.getExportManifest(id);
+    return result ? result : reply.status(404).send({ error: "artifact_not_ready" });
+  });
+  app.get("/api/exports/:id/download", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const artifact = await services.getExportDownload(id);
+    if (!artifact) return reply.status(404).send({ error: "artifact_not_ready" });
+    reply.header("content-type", "application/gzip");
+    reply.header("content-disposition", `attachment; filename="${artifact.fileName}"`);
+    reply.header("content-length", String(artifact.bytes));
+    reply.header("x-content-sha256", artifact.hash);
+    return reply.send(createReadStream(artifact.path));
+  });
+  app.patch("/api/exports/:id/import-status", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const updated = await services.updateImportStatus(id, ImportStatusBody.parse(request.body));
+    return updated ? { updated: true } : reply.status(404).send({ error: "not_found" });
   });
   app.get("/api/failures", async (request) => {
     const { limit, offset } = Pagination.parse(request.query);

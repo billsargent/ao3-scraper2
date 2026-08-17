@@ -176,7 +176,19 @@ curl -H "Authorization: Bearer $API_TOKEN" \
   http://127.0.0.1:3001/api/exports
 ```
 
-The first non-empty export is a snapshot. Later exports contain only works whose content hash changed and link to the previous completed package. Requests with no changed works finish as `empty`. Package files are written under `EXPORT_DIRECTORY/<package-id>` and checksummed before works are marked exported.
+The first non-empty export is a snapshot. Later exports contain only works whose content hash changed and link to the previous completed package. Requests with no changed works finish as `empty`. Package files are written under `EXPORT_DIRECTORY/<package-id>`, verified, and compressed to `<package-id>.tar.gz` before works are marked exported.
+
+The Transfer Packages inspector displays manifest counts, verification time, archive size, and SHA-256. It can download the authenticated archive and track `not imported`, `importing`, `imported`, or `failed` OTW status. API equivalents are:
+
+```bash
+curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3001/api/exports/1/manifest
+curl -OJ -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3001/api/exports/1/download
+curl -X PATCH http://127.0.0.1:3001/api/exports/1/import-status \
+  -H "Authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
+  -d '{"status":"imported","otwImportRunId":"otw-run-123"}'
+```
+
+The download response includes `X-Content-SHA256` and `Content-Length` headers.
 
 Run one export worker per collector database in this milestone; multi-worker export lineage serialization is planned hardening.
 

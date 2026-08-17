@@ -11,6 +11,7 @@
     "@ao3-offsite/package-tools": "0.1.0",
     "@ao3-offsite/scraper-core": "0.1.0",
     "drizzle-orm": "^0.45.2",
+    "tar": "^7.5.1",
     "zod": "^3.24.2"
   }
 }

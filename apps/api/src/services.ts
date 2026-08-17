@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
 import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
 import {
@@ -42,6 +44,9 @@ export interface ApiServices {
   createExport(sourceId: number, maximumWorks: number): Promise<{ id: number; packageId: string }>;
   listExports(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
   getExport(exportId: number): Promise<unknown | null>;
+  getExportManifest(exportId: number): Promise<unknown | null>;
+  getExportDownload(exportId: number): Promise<{ path: string; fileName: string; hash: string; bytes: number } | null>;
+  updateImportStatus(exportId: number, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean>;
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
   getChapter(workId: number, chapterId: number): Promise<unknown | null>;
@@ -132,6 +137,46 @@ export class MariaDbApiServices implements ApiServices {
   getExport(exportId: number): Promise<unknown | null> {
     return this.db.select().from(exportRuns).where(eq(exportRuns.id, exportId)).limit(1)
       .then((rows) => rows[0] ?? null);
+  }
+
+  async getExportManifest(exportId: number): Promise<unknown | null> {
+    const row = (await this.db.select({
+      status: exportRuns.status,
+      outputDirectory: exportRuns.outputDirectory,
+      archiveHash: exportRuns.archiveHash,
+      archiveBytes: exportRuns.archiveBytes,
+      verifiedAt: exportRuns.verifiedAt,
+    }).from(exportRuns).where(eq(exportRuns.id, exportId)).limit(1))[0];
+    if (!row || row.status !== "completed") return null;
+    const [manifest, checksums] = await Promise.all([
+      readFile(join(row.outputDirectory, "manifest.json"), "utf8").then(JSON.parse),
+      readFile(join(row.outputDirectory, "checksums.sha256"), "utf8"),
+    ]);
+    return { manifest, checksums, archiveHash: row.archiveHash, archiveBytes: row.archiveBytes, verifiedAt: row.verifiedAt };
+  }
+
+  async getExportDownload(exportId: number): Promise<{ path: string; fileName: string; hash: string; bytes: number } | null> {
+    const row = (await this.db.select({
+      status: exportRuns.status,
+      archivePath: exportRuns.archivePath,
+      archiveHash: exportRuns.archiveHash,
+      archiveBytes: exportRuns.archiveBytes,
+    }).from(exportRuns).where(eq(exportRuns.id, exportId)).limit(1))[0];
+    if (!row || row.status !== "completed" || !row.archivePath || !row.archiveHash || row.archiveBytes === null) return null;
+    return { path: row.archivePath, fileName: basename(row.archivePath), hash: row.archiveHash, bytes: row.archiveBytes };
+  }
+
+  async updateImportStatus(exportId: number, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean> {
+    const now = new Date();
+    const result = await this.db.update(exportRuns).set({
+      importStatus: update.status,
+      importStartedAt: update.status === "importing" ? now : undefined,
+      importedAt: update.status === "imported" ? now : null,
+      importError: update.status === "failed" ? update.error ?? "OTW import failed" : null,
+      otwImportRunId: update.otwImportRunId ?? null,
+      updatedAt: now,
+    }).where(eq(exportRuns.id, exportId));
+    return affectedRows(result) === 1;
   }
 
   async listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }> {

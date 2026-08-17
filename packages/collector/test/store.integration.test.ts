@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -288,6 +288,11 @@ integration("CollectorStore with MariaDB", () => {
       const firstRequest = await queue.createRequest(sourceId, exportRoot, 100);
       expect(await worker.processOne()).toBe(true);
       const exported = await readTransferPackage(join(exportRoot, firstRequest.packageId));
+      const firstRun = (await db.select().from(exportRuns).where(eq(exportRuns.id, firstRequest.id)))[0]!;
+      expect(firstRun.archiveHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(firstRun.archivePath).toBe(`${join(exportRoot, firstRequest.packageId)}.tar.gz`);
+      expect((await stat(firstRun.archivePath!)).size).toBe(firstRun.archiveBytes);
+      expect(firstRun.verifiedAt).toBeInstanceOf(Date);
       expect(exported.manifest).toMatchObject({ packageId: firstRequest.packageId, packageType: "snapshot", previousPackageId: null });
       expect(exported.records.works).toMatchObject([{ title: "Updated integration title" }]);
       expect(exported.records.chapters).toHaveLength(1);

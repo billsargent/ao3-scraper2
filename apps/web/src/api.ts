@@ -45,8 +45,30 @@ export interface ExportRecord {
   maximumWorks: number;
   workCount: number;
   errorMessage: string | null;
+  archivePath: string | null;
+  archiveHash: string | null;
+  archiveBytes: number | null;
+  verifiedAt: string | null;
+  importStatus: "not_imported" | "importing" | "imported" | "failed";
+  importStartedAt: string | null;
+  importedAt: string | null;
+  importError: string | null;
+  otwImportRunId: string | null;
   createdAt: string;
   completedAt: string | null;
+}
+
+export interface ExportManifest {
+  manifest: {
+    packageId: string;
+    packageType: "snapshot" | "incremental";
+    createdAt: string;
+    records: Record<string, number>;
+  };
+  checksums: string;
+  archiveHash: string;
+  archiveBytes: number;
+  verifiedAt: string;
 }
 
 export interface FailureRecord {
@@ -176,6 +198,16 @@ export const api = {
   exports: (page = 0, limit = 25) => request<{ exports: ExportRecord[]; total: number }>(`/api/exports?limit=${limit}&offset=${page * limit}`),
   createExport: (body: { sourceId: number; maximumWorks: number }) => request<{ id: number; packageId: string }>("/api/exports", { method: "POST", body: JSON.stringify(body) }),
   exportDetail: (id: number) => request<{ export: ExportRecord }>(`/api/exports/${id}`),
+  exportManifest: (id: number) => request<ExportManifest>(`/api/exports/${id}/manifest`),
+  updateImportStatus: (id: number, body: { status: ExportRecord["importStatus"]; error?: string | null; otwImportRunId?: string | null }) => request<{ updated: boolean }>(`/api/exports/${id}/import-status`, { method: "PATCH", body: JSON.stringify(body) }),
+  downloadExport: async (id: number) => {
+    const token = getApiToken();
+    const response = await fetch(`/api/exports/${id}/download`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+    if (!response.ok) throw new ApiError("Package download is not ready", response.status);
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const fileName = disposition.match(/filename="([^"]+)"/)?.[1] ?? `archive-relay-export-${id}.tar.gz`;
+    return { blob: await response.blob(), fileName, hash: response.headers.get("x-content-sha256") };
+  },
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

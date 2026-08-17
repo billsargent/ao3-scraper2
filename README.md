@@ -30,7 +30,8 @@ Implemented:
 - Database-backed distributed request slots, UTC request/byte budgets, operating windows, and response accounting
 - Configurable Browser ID/User-Agent with a standard Chrome default, adult-content policy, timeout, response-size, and retry controls
 - Continuously running worker with graceful shutdown and bounded retry scheduling
-- Durable asynchronous MariaDB-to-package export queue and worker with snapshot/incremental lineage, empty-run detection, checksums, and exported-hash tracking
+- Durable asynchronous export queue with verified snapshot/incremental packages, reproducible `.tar.gz` downloads, SHA-256 metadata, empty-run detection, and exported-hash tracking
+- Per-package OTW import workflow/status with timestamps, errors, and optional OTW run IDs
 - Fastify control API with optional constant-time bearer-token authentication and authenticated Server-Sent Events
 - Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, asynchronous transfer-package inspection, paginated library, offline chapter reader, and granular source policy
 - Limited live validation dataset from the first Harry Potter search-results page
@@ -182,7 +183,7 @@ The OTW importer has also been installed into the reference OTW checkout and run
 
 ## Next steps
 
-1. Add package download/verification and OTW import-status endpoints.
+1. Connect OTW importer completion directly to collector import status.
 2. Add multi-worker export-lineage serialization.
 3. Add browser-level tests and automate the low-memory OTW integration path.
 4. Add comments and embedded assets only after the core pipeline is reliable.

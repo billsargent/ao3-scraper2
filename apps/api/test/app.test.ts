@@ -19,6 +19,9 @@ function services(): ApiServices {
     createExport: vi.fn().mockResolvedValue({ id: 3, packageId: "00000000-0000-4000-8000-000000000003" }),
     listExports: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getExport: vi.fn().mockResolvedValue(null),
+    getExportManifest: vi.fn().mockResolvedValue(null),
+    getExportDownload: vi.fn().mockResolvedValue(null),
+    updateImportStatus: vi.fn().mockResolvedValue(true),
     listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getWork: vi.fn().mockResolvedValue(null),
     getChapter: vi.fn().mockResolvedValue(null),
@@ -96,6 +99,10 @@ describe("Fastify control API", () => {
     expect(mock.createExport).toHaveBeenCalledWith(1, 100);
     expect((await app.inject({ method: "GET", url: "/api/exports?limit=25&offset=0" })).json()).toMatchObject({ total: 0, exports: [] });
     expect((await app.inject({ method: "GET", url: "/api/exports/99" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/api/exports/99/manifest" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/api/exports/99/download" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "PATCH", url: "/api/exports/3/import-status", payload: { status: "imported", otwImportRunId: "run-3" } })).statusCode).toBe(200);
+    expect(mock.updateImportStatus).toHaveBeenCalledWith(3, { status: "imported", otwImportRunId: "run-3" });
   });
 
   it("controls jobs and returns not found records", async () => {
