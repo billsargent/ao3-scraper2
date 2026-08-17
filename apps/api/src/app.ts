@@ -24,7 +24,7 @@ const IdRangeBody = z.object({
   end: z.number().int().positive(),
   batchSize: z.number().int().min(1).max(1000).default(250),
 }).refine((body) => body.end >= body.start, { path: ["end"], message: "end must be >= start" })
-  .refine((body) => body.end - body.start + 1 <= 10_000, { path: ["end"], message: "API range is limited to 10,000 works" });
+  .refine((body) => body.end - body.start + 1 <= 10_000_000, { path: ["end"], message: "A single planning request is limited to 10,000,000 IDs" });
 const SourcePolicy = z.object({
   userAgent: z.string().min(10).max(1000).default(STANDARD_CHROME_USER_AGENT),
   includeAdult: z.boolean().default(true),

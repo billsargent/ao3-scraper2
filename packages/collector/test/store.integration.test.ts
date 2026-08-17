@@ -31,6 +31,7 @@ import { ContentAddressedBlobStore } from "../src/blob-store.js";
 import { ExportQueueStore } from "../src/export-queue.js";
 import { ExportWorker } from "../src/export-worker.js";
 import { MariaDbPackageExporter } from "../src/exporter.js";
+import { JobPlannerStore, JobPlannerWorker } from "../src/job-planner.js";
 import { WorkTaskProcessor } from "../src/processor.js";
 import { SourceBudgetStore } from "../src/source-budget-store.js";
 import { CollectorStore } from "../src/store.js";
@@ -94,6 +95,33 @@ integration("CollectorStore with MariaDB", () => {
 
     expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, jobId)))).toBe(3);
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.discoveredCount).toBe(3);
+  });
+
+  it("plans large ID ranges asynchronously and resumes idempotently from a cursor", async () => {
+    const plannerQueue = new JobPlannerStore(db);
+    const planner = new JobPlannerWorker("integration-planner", plannerQueue, 30_000);
+    const jobId = await store.createIdRangeJob(sourceId, { start: 300, end: 306, batchSize: 3 });
+    expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, jobId)))).toBe(0);
+    expect(await planner.processOne()).toBe(true);
+    expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, jobId)))).toBe(7);
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]).toMatchObject({
+      planningStatus: "completed", planningCursor: 307, discoveredCount: 7,
+    });
+
+    const resumedJobId = await store.createIdRangeJob(sourceId, { start: 400, end: 405, batchSize: 2 });
+    await store.enqueueWorkIds(resumedJobId, ["400", "401"]);
+    await db.update(collectionJobs).set({ planningCursor: 402 }).where(eq(collectionJobs.id, resumedJobId));
+    expect(await planner.processOne()).toBe(true);
+    expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, resumedJobId)))).toBe(6);
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, resumedJobId)))[0]!.discoveredCount).toBe(6);
+
+    const cancelledJobId = await store.createIdRangeJob(sourceId, { start: 500, end: 999, batchSize: 100 });
+    const cancelledClaim = await plannerQueue.claim("cancel-test", 30_000);
+    expect(cancelledClaim?.id).toBe(cancelledJobId);
+    await plannerQueue.markPlanning(cancelledJobId, cancelledClaim!.leaseToken);
+    await leases.cancelJob(cancelledJobId);
+    expect(await plannerQueue.enqueueBatch(cancelledJobId, cancelledClaim!.leaseToken, ["500"], 501, 30_000)).toBe(false);
+    expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, cancelledJobId)))).toBe(0);
   });
 
   it("serializes source request slots and enforces daily request and byte budgets", async () => {

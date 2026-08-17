@@ -22,7 +22,7 @@ Implemented:
 - Fixture-driven AO3 entire-work HTML parser for metadata, chapters, authors, tags, and series
 - Conservative source client with origin allowlisting, serialized requests, delay floor, `Retry-After`, retries, timeouts, and response-size limits
 - MariaDB/MySQL collector schema and generated Drizzle migration
-- Durable job/task ledger, normalized archive tables, observations, and raw snapshot catalog
+- Durable asynchronous ID-range planner with leased checkpoints, bounded batches, idempotent crash recovery, and a 10-million-ID guard
 - Transactional collector persistence for works, chapters, authors, tags, series, and availability
 - Gzip content-addressed raw HTML storage
 - Streaming ID-range planner and end-to-end work task processor
@@ -182,10 +182,9 @@ The OTW importer has also been installed into the reference OTW checkout and run
 
 ## Next steps
 
-1. Move large-range planning into asynchronous discovery jobs.
-2. Add package download/verification and OTW import-status endpoints.
-3. Add multi-worker export-lineage serialization.
-4. Add browser-level tests and automate the low-memory OTW integration path.
-5. Add comments and embedded assets only after the core pipeline is reliable.
+1. Add package download/verification and OTW import-status endpoints.
+2. Add multi-worker export-lineage serialization.
+3. Add browser-level tests and automate the low-memory OTW integration path.
+4. Add comments and embedded assets only after the core pipeline is reliable.
 
 The detailed roadmap is maintained in `docs/NEXT_STEPS.md`.

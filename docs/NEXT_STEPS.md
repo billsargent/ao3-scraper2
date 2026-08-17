@@ -33,6 +33,7 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed optional constant-time API bearer authentication and the browser token unlock flow.
 - Completed authenticated Server-Sent Events with two-second job and export snapshots, transport heartbeats, browser reconnection, and polling fallback.
 - Completed the durable asynchronous export queue, standalone export worker, snapshot/incremental lineage, empty-run handling, and Transfer Packages UI.
+- Completed asynchronous ID-range planning with MariaDB leases, bounded inserts, cursor checkpoints, idempotent recovery, a standalone planner worker, and UI planning state.
 - Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
@@ -274,19 +275,14 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. Asynchronous large-range planning
-2. Package download/verification and OTW import-status workflow
-3. Package-to-OTW import status and operator workflow
-4. Browser-level tests for dashboard/job/settings/auth flows
-5. One-command low-memory collector-to-OTW integration test
-6. Deployment and backup profiles
+1. Package download/verification and OTW import-status workflow
+2. Multi-worker export lineage serialization
+3. Browser-level tests for dashboard, jobs, exports, settings, and authentication
+4. One-command low-memory collector-to-OTW integration test
+5. Deployment and backup profiles
 
 ---
 
-## Remaining team input
+## Team input status
 
-The live validation dataset, delay, request budgets, adult-content policy, and private/restricted OTW default are now decided. Before routine source collection, the worker still requires one value that is intentionally not committed:
-
-- A real team contact address for the collector User-Agent
-
-Fixture-only development, API/UI work, package export, and OTW import testing do not require that value.
+The validation dataset, Browser ID default, delay, request/byte budgets, adult-content policy, and private/restricted OTW default are configured. Browser identity remains editable per source, including an optional project contact identifier.

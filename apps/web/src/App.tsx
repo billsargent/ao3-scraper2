@@ -129,7 +129,7 @@ function Jobs({ source }: { source: Source | undefined }) {
     {showForm && source && <JobForm source={source} onClose={() => setShowForm(false)} />}
     <Panel title="All jobs">
       {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
-        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={job.status} /></td><td><Progress job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
+        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} /></td><td><Progress job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
           {job.status === "running" && <button onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
@@ -154,7 +154,7 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
     <div className="form-grid"><label>Starting work ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label><label>Ending work ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label></div>
     <div className="estimate"><span>{formatNumber(count)} tasks</span><span>≈ {duration(count * source.minimumDelayMs)}</span></div>
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
-    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
+    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10_000_000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
   </form></div>;
 }
 
@@ -295,8 +295,13 @@ function Empty({ title, text }: { title: string; text: string }) { return <div c
 function Notice({ title, text, action }: { title: string; text: string; action: () => void }) { return <div className="notice"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><div><b>{title}</b><span>{text}</span></div><button onClick={action}>Open settings</button></div>; }
 function Safety({ label, value, good }: { label: string; value: string; good: boolean }) { return <div><span><i className={good ? "check" : "pause-icon"}>{good ? "✓" : "Ⅱ"}</i>{label}</span><b>{value}</b></div>; }
 function Status({ status }: { status: string }) { return <span className={`status ${status}`}>{status.replace("_", " ")}</span>; }
-function Progress({ job }: { job: CollectionJob }) { const done = job.succeededCount + job.failedCount + job.skippedCount; const percent = job.discoveredCount ? Math.round(done / job.discoveredCount * 100) : 0; return <div className="progress-cell"><div><span style={{ width: `${percent}%` }} /></div><small>{done}/{job.discoveredCount} · {percent}%</small></div>; }
-function JobRow({ job }: { job: CollectionJob }) { return <div className="job-row"><div className="job-icon"><Icon path="M12 4v12m0 0 4-4m-4 4-4-4" /></div><div><b>Job #{job.id}</b><span>{job.configuration.start ?? "?"}–{job.configuration.end ?? "?"} · {formatNumber(job.discoveredCount)} tasks</span></div><Status status={job.status} /><time>{formatDate(job.createdAt)}</time></div>; }
+function Progress({ job }: { job: CollectionJob }) { const done = job.succeededCount + job.failedCount + job.skippedCount; const percent = job.discoveredCount ? Math.round(done / job.discoveredCount * 100) : 0; return <div className="progress-cell"><div><span style={{ width: `${percent}%` }} /></div><small>{job.planningStatus !== "completed" ? `Planning · ${formatNumber(job.discoveredCount)} queued` : `${done}/${job.discoveredCount} · ${percent}%`}</small></div>; }
+function displayJobStatus(job: CollectionJob): string {
+  if (job.planningStatus === "failed") return "planning_failed";
+  if (job.planningStatus !== "completed") return "planning";
+  return job.status;
+}
+function JobRow({ job }: { job: CollectionJob }) { return <div className="job-row"><div className="job-icon"><Icon path="M12 4v12m0 0 4-4m-4 4-4-4" /></div><div><b>Job #{job.id}</b><span>{job.configuration.start ?? "?"}–{job.configuration.end ?? "?"} · {formatNumber(job.discoveredCount)} tasks</span></div><Status status={displayJobStatus(job)} /><time>{formatDate(job.createdAt)}</time></div>; }
 function Icon({ path }: { path: string }) { return <svg aria-hidden="true" viewBox="0 0 24 24"><path d={path} /></svg>; }
 
 const formatNumber = (value: number) => new Intl.NumberFormat().format(value);

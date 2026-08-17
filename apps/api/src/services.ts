@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
-import { CollectorStore, ExportQueueStore, TaskLeaseStore, planIdRange } from "@ao3-offsite/collector";
+import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
 import {
   chapters,
   collectionJobs,
@@ -79,10 +79,8 @@ export class MariaDbApiServices implements ApiServices {
     return affectedRows(result) === 1;
   }
 
-  async createIdRangeJob(sourceId: number, configuration: { start: number; end: number; batchSize: number }): Promise<number> {
-    const jobId = await this.collector.createIdRangeJob(sourceId, configuration);
-    for (const batch of planIdRange(configuration)) await this.collector.enqueueWorkIds(jobId, batch);
-    return jobId;
+  createIdRangeJob(sourceId: number, configuration: { start: number; end: number; batchSize: number }): Promise<number> {
+    return this.collector.createIdRangeJob(sourceId, configuration);
   }
 
   async listJobs(limit: number, offset: number): Promise<unknown[]> {

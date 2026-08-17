@@ -22,6 +22,9 @@ export interface CollectionJob {
   type: string;
   status: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled";
   configuration: { start?: number; end?: number; batchSize?: number };
+  planningStatus: "queued" | "leased" | "planning" | "completed" | "failed";
+  planningCursor: number | null;
+  planningError: string | null;
   discoveredCount: number;
   succeededCount: number;
   failedCount: number;

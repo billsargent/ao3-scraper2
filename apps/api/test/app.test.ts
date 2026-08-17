@@ -75,7 +75,7 @@ describe("Fastify control API", () => {
     const app = buildApp(services()); apps.push(app);
     const reversed = await app.inject({ method: "POST", url: "/api/jobs/id-range", payload: { sourceId: 1, start: 10, end: 1 } });
     expect(reversed.statusCode).toBe(400);
-    const huge = await app.inject({ method: "POST", url: "/api/jobs/id-range", payload: { sourceId: 1, start: 1, end: 10002 } });
+    const huge = await app.inject({ method: "POST", url: "/api/jobs/id-range", payload: { sourceId: 1, start: 1, end: 10_000_002 } });
     expect(huge.statusCode).toBe(400);
   });
 

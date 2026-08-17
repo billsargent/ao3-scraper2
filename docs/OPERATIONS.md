@@ -119,7 +119,13 @@ curl -X POST http://127.0.0.1:3001/api/jobs/id-range \
   }'
 ```
 
-For safety, this initial API limits one range request to 10,000 IDs. Larger discovery will move to an asynchronous planner.
+The API stores the job immediately without generating every task in the HTTP request. Start the durable planner in another terminal:
+
+```bash
+npm run planner-worker:start
+```
+
+The planner streams bounded batches into MariaDB, checkpoints its next ID after every batch, and resumes idempotently after a crash. One request is capped at 10,000,000 IDs as a configuration guard; practical jobs should begin much smaller.
 
 Inspect jobs:
 
