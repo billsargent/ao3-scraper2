@@ -1,0 +1,14 @@
+{
+  "name": "@ao3-offsite/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "tsc -b", "start": "tsx src/index.ts" },
+  "dependencies": {
+    "@ao3-offsite/collector": "0.1.0",
+    "@ao3-offsite/database": "0.1.0",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.6.1",
+    "zod": "^3.24.2"
+  }
+}

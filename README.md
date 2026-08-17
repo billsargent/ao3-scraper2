@@ -27,16 +27,20 @@ Implemented:
 - Gzip content-addressed raw HTML storage
 - Streaming ID-range planner and end-to-end work task processor
 - Atomic MariaDB task claiming, leases, heartbeats, expired-lease recovery, and job pause/resume/cancel
-- MariaDB-to-transfer-package exporter
+- Database-backed distributed request slots, UTC daily budgets, and response-byte accounting
+- Continuously running worker with graceful shutdown and bounded retry scheduling
+- MariaDB-to-transfer-package exporter with snapshot/incremental lineage and exported-hash tracking
+- Initial Fastify control API for sources, jobs, controls, health, and work browsing
+- Responsive React/Vite operator interface with dashboard, jobs, library, and safety settings
 - Limited live validation dataset from the first Harry Potter search-results page
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests
 
 Not yet implemented:
 
-- Fastify API and Vite interface
-- Daily-budget accounting and database-backed distributed request slots
-- Automated package import-status tracking
+- API live-event stream and detailed failure/export screens
+- API authentication and asynchronous large-range discovery/export jobs
+- Automated OTW package import-status tracking
 - Comments and embedded-asset capture
 - A production installer/upgrade strategy for the OTW fork
 
@@ -100,7 +104,7 @@ export COLLECTOR_DATABASE_URL=mysql://collector:collector_local_only@localhost:3
 npm run db:migrate
 ```
 
-See `docs/DATABASE.md` for the schema, isolation rules, and version policy. If you are new to Docker, follow `docs/DOCKER_SETUP.md` from installation through database migration and backups. The generated migration and transactional repository tests have been executed successfully against MariaDB 10.11 in Docker.
+See `docs/DATABASE.md` for the schema, isolation rules, and version policy. If you are new to Docker, follow `docs/DOCKER_SETUP.md` from installation through database migration and backups. Use `docs/OPERATIONS.md` for tested API, source, job, and worker commands. The generated migrations and transactional repository tests have been executed successfully against MariaDB 10.11 in Docker.
 
 ## Installing the importer into an OTW checkout
 
@@ -165,17 +169,20 @@ The importer deliberately sets imported works to restricted in this first privat
 - Exclusive multi-worker claims and lease ownership
 - Heartbeats and expired-lease recovery
 - Pause, resume, cancel, and transactional job counters
-- MariaDB-to-package export and package verification
+- Concurrent distributed source-slot reservations and daily-budget enforcement
+- Worker scheduling, byte accounting, retry exhaustion, and graceful task outcomes
+- Local fixture HTTP source through worker, raw storage, MariaDB, and package export
+- Snapshot/incremental package lineage and unchanged-work exclusion
+- Fastify route validation, health checks, job controls, and source safety defaults
 
-Database integration has been exercised against MariaDB 10.11: the migration ran successfully and the repository passed tests for durable task idempotency plus transactional work/chapter/tag/series reconciliation.
+Database integration has been exercised against MariaDB 10.11: all migrations ran successfully and six integration tests cover durable task idempotency, exclusive leases, budget serialization, recovery, a local fixture-to-worker pipeline, transactional normalization, and incremental package export.
 
 The OTW importer has also been installed into the reference OTW checkout and run in its Docker test environment. Its migration succeeded against MariaDB, and the package reader/importer suite passes with **6 examples and 0 failures**, covering initial import, package idempotency, package ordering, source identities, chapters, tags, series, and incremental updates. Elasticsearch required a low-memory Compose override in this 2 GB sandbox.
 
 ## Next steps
 
-1. Add daily request accounting and a database-backed distributed request-slot reservation.
-2. Add a worker process that continuously claims tasks, heartbeats, processes work, and records outcomes.
-3. Add package export tracking and incremental selection by last exported content hash.
-4. Add the Fastify API and then the Vite operations UI.
-5. Automate the low-memory OTW end-to-end integration test.
-6. Add comments and embedded assets only after the core UI pipeline is reliable.
+1. Add API authentication, Server-Sent Events, and detailed failure/export endpoints.
+2. Move large-range planning and package export into asynchronous worker tasks.
+3. Add package-to-OTW import status tracking and an operator import workflow.
+4. Add browser-level tests and automate the low-memory OTW end-to-end integration test.
+5. Add comments and embedded assets only after the core UI pipeline is reliable.

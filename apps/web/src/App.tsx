@@ -1,0 +1,168 @@
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type CollectionJob, type Source } from "./api.js";
+
+type Page = "dashboard" | "jobs" | "library" | "settings";
+
+const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
+  { id: "dashboard", label: "Overview", icon: <Icon path="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" /> },
+  { id: "jobs", label: "Collection jobs", icon: <Icon path="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" /> },
+  { id: "library", label: "Archive library", icon: <Icon path="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Zm0 15A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 18.5" /> },
+  { id: "settings", label: "Source settings", icon: <Icon path="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 6a1.7 1.7 0 0 0 1.04-1.55V4.3h3v.15A1.7 1.7 0 0 0 15.74 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z" /> },
+];
+
+export default function App() {
+  const [page, setPage] = useState<Page>("dashboard");
+  const health = useQuery({ queryKey: ["health"], queryFn: api.health, refetchInterval: 15_000, retry: 1 });
+  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 10_000 });
+  const source = sources.data?.sources[0];
+
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-mark">AR</div><div><strong>Archive Relay</strong><span>Offline preservation</span></div></div>
+      <nav aria-label="Primary navigation">
+        {nav.map((item) => <button key={item.id} className={page === item.id ? "nav-item active" : "nav-item"} onClick={() => setPage(item.id)}>
+          {item.icon}<span>{item.label}</span>
+        </button>)}
+      </nav>
+      <div className="sidebar-foot">
+        <div className="status-row"><span className={health.isSuccess ? "status-dot good" : "status-dot bad"} /><span>{health.isSuccess ? "API connected" : "API unavailable"}</span></div>
+        <div className="version">Collector 0.1 · Private</div>
+      </div>
+    </aside>
+    <main>
+      <header className="topbar">
+        <div><p className="eyebrow">PRIVATE OFFLINE ARCHIVE</p><h1>{nav.find((item) => item.id === page)?.label}</h1></div>
+        <div className="source-chip"><span className={source?.paused ? "status-dot warn" : "status-dot good"} /><div><b>{source?.key ?? "No source"}</b><small>{source ? source.paused ? "Paused" : "Collection enabled" : "Configure a source"}</small></div></div>
+      </header>
+      <div className="content">
+        {page === "dashboard" && <Dashboard source={source} onNavigate={setPage} />}
+        {page === "jobs" && <Jobs source={source} />}
+        {page === "library" && <Library />}
+        {page === "settings" && <Settings source={source} />}
+      </div>
+    </main>
+  </div>;
+}
+
+function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavigate: (page: Page) => void }) {
+  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 5_000 });
+  const works = useQuery({ queryKey: ["works"], queryFn: api.works, refetchInterval: 10_000 });
+  const list = jobs.data?.jobs ?? [];
+  const workList = works.data?.works ?? [];
+  const active = list.filter((job) => ["queued", "running"].includes(job.status));
+  const totalWords = workList.reduce((sum, work) => sum + (work.words ?? 0), 0);
+  const failed = list.reduce((sum, job) => sum + job.failedCount, 0);
+  return <>
+    <section className="hero-panel">
+      <div><p className="eyebrow accent">SYSTEM SUMMARY</p><h2>Your private archive, quietly building.</h2><p>Collect conservatively, retain original captures, and move verified works into your offline OTW Archive.</p></div>
+      <button className="primary" onClick={() => onNavigate("jobs")}><Icon path="M12 5v14M5 12h14" />New collection job</button>
+    </section>
+    {!source && <Notice title="Configure your first source" text="Create the AO3 source in Settings. New sources begin paused so nothing is requested accidentally." action={() => onNavigate("settings")} />}
+    <section className="metric-grid">
+      <Metric label="Collected works" value={formatNumber(workList.length)} note="Loaded in current view" tone="violet" />
+      <Metric label="Archived words" value={compactNumber(totalWords)} note="Across loaded works" tone="cyan" />
+      <Metric label="Active jobs" value={formatNumber(active.length)} note={source?.paused ? "Source is paused" : "Worker may claim tasks"} tone="amber" />
+      <Metric label="Terminal failures" value={formatNumber(failed)} note="Available for review" tone={failed ? "rose" : "green"} />
+    </section>
+    <section className="two-column">
+      <Panel title="Recent collection jobs" action={<button className="text-button" onClick={() => onNavigate("jobs")}>View all →</button>}>
+        {list.length ? <div className="job-stack">{list.slice(0, 5).map((job) => <JobRow job={job} key={job.id} />)}</div> : <Empty title="No collection jobs yet" text="Create a small ID range when you are ready." />}
+      </Panel>
+      <Panel title="Safety controls">
+        <div className="safety-list">
+          <Safety label="Source requests" value={source?.paused ? "Paused" : "Enabled"} good={!source?.paused} />
+          <Safety label="Minimum delay" value={source ? `${source.minimumDelayMs / 1000}s` : "—"} good />
+          <Safety label="Daily request cap" value={source?.dailyRequestBudget?.toString() ?? "Unlimited"} good={source?.dailyRequestBudget !== null} />
+          <Safety label="Visibility" value="Private / restricted" good />
+        </div>
+      </Panel>
+    </section>
+  </>;
+}
+
+function Jobs({ source }: { source: Source | undefined }) {
+  const client = useQueryClient();
+  const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 4_000 });
+  const [showForm, setShowForm] = useState(false);
+  const control = useMutation({ mutationFn: ({ id, action }: { id: number; action: "pause" | "resume" | "cancel" }) => api.controlJob(id, action), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
+  return <>
+    <div className="page-actions"><div><h2>Durable collection queue</h2><p>Jobs survive worker and API restarts. Source limits apply across every worker.</p></div><button className="primary" disabled={!source} onClick={() => setShowForm(true)}><Icon path="M12 5v14M5 12h14" />New job</button></div>
+    {showForm && source && <JobForm source={source} onClose={() => setShowForm(false)} />}
+    <Panel title="All jobs">
+      {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
+        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={job.status} /></td><td><Progress job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
+          {job.status === "running" && <button onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
+          {job.status === "paused" && <button onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
+          {!['completed','cancelled'].includes(job.status) && <button className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
+        </div></td></tr>)}
+      </tbody></table></div> : <Empty title="The queue is empty" text="Create a small job to begin collecting." />}
+    </Panel>
+  </>;
+}
+
+function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
+  const client = useQueryClient();
+  const [start, setStart] = useState(1);
+  const [end, setEnd] = useState(10);
+  const mutation = useMutation({
+    mutationFn: () => api.createJob({ sourceId: source.id, start, end, batchSize: 250 }),
+    onSuccess: async () => { await client.invalidateQueries({ queryKey: ["jobs"] }); onClose(); },
+  });
+  const count = Math.max(0, end - start + 1);
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="modal" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
+    <div className="modal-head"><div><p className="eyebrow accent">NEW COLLECTION</p><h2>ID range job</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
+    <p className="muted">Tasks are created durably. The source is currently <b>{source.paused ? "paused" : "enabled"}</b>, with a {source.minimumDelayMs / 1000}-second minimum delay.</p>
+    <div className="form-grid"><label>Starting work ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label><label>Ending work ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label></div>
+    <div className="estimate"><span>{formatNumber(count)} tasks</span><span>≈ {duration(count * source.minimumDelayMs)}</span></div>
+    {mutation.error && <p className="form-error">{mutation.error.message}</p>}
+    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
+  </form></div>;
+}
+
+function Library() {
+  const works = useQuery({ queryKey: ["works"], queryFn: api.works, refetchInterval: 10_000 });
+  const [filter, setFilter] = useState("");
+  const list = useMemo(() => (works.data?.works ?? []).filter((work) => work.title.toLowerCase().includes(filter.toLowerCase()) || work.sourceWorkId.includes(filter)), [works.data, filter]);
+  return <>
+    <div className="page-actions"><div><h2>Collected works</h2><p>Normalized records backed by immutable raw captures.</p></div><div className="search"><Icon path="m21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /><input aria-label="Filter works" placeholder="Filter title or source ID" value={filter} onChange={(e) => setFilter(e.target.value)} /></div></div>
+    <Panel title={`${list.length} works in view`}>
+      {list.length ? <div className="work-grid">{list.map((work) => <article className="work-card" key={work.id}><div className="work-card-top"><span className="source-id">AO3 #{work.sourceWorkId}</span><Status status={work.availability} /></div><h3>{work.title}</h3><div className="work-meta"><span>{compactNumber(work.words ?? 0)} words</span><span>{work.expectedChapters ?? "?"} ch.</span><span>{work.languageCode.toUpperCase()}</span></div><div className="work-foot"><span>{work.complete ? "Complete" : "In progress"}</span><span>Seen {formatDate(work.lastSeenAt)}</span></div></article>)}</div> : <Empty title="No matching works" text="Collected works will appear here after a worker succeeds." />}
+    </Panel>
+  </>;
+}
+
+function Settings({ source }: { source: Source | undefined }) {
+  const client = useQueryClient();
+  const [delay, setDelay] = useState(source?.minimumDelayMs ?? 10000);
+  const [budget, setBudget] = useState(source?.dailyRequestBudget ?? 250);
+  useEffect(() => {
+    if (source) {
+      setDelay(source.minimumDelayMs);
+      setBudget(source.dailyRequestBudget ?? 250);
+    }
+  }, [source?.id, source?.minimumDelayMs, source?.dailyRequestBudget]);
+  const update = useMutation({ mutationFn: (paused: boolean) => source ? api.updateSource(source.id, { minimumDelayMs: delay, dailyRequestBudget: budget, paused }) : Promise.reject(new Error("No source")), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
+  const create = useMutation({ mutationFn: () => api.createSource({ key: "ao3", origin: "https://archiveofourown.org" }), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
+  if (!source) return <Panel title="Create source"><div className="settings-empty"><div className="large-icon"><Icon path="M12 3v18m9-9H3" /></div><h2>No collection source configured</h2><p>AO3 will be created paused with a 10-second delay and 250-request daily budget.</p><button className="primary" onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create paused AO3 source"}</button></div></Panel>;
+  return <div className="settings-layout">
+    <Panel title="Source policy"><div className="settings-form"><label>Source origin<input value={source.origin} disabled /></label><div className="form-grid"><label>Minimum delay (milliseconds)<input type="number" min="2000" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label>UTC daily request budget<input type="number" min="1" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label></div><div className="policy-callout"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><p><b>Safety boundary</b><span>Settings are enforced transactionally across every worker. The API will not accept a delay below two seconds.</span></p></div><div className="settings-actions"><button className="secondary" onClick={() => update.mutate(true)}>Save & pause</button><button className={source.paused ? "primary" : "danger-button"} onClick={() => update.mutate(!source.paused)}>{source.paused ? "Enable collection" : "Pause immediately"}</button></div>{update.error && <p className="form-error">{update.error.message}</p>}</div></Panel>
+    <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source key</dt><dd>{source.key}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>Allowed</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
+  </div>;
+}
+
+function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) { return <section className="panel"><div className="panel-head"><h2>{title}</h2>{action}</div>{children}</section>; }
+function Metric({ label, value, note, tone }: { label: string; value: string; note: string; tone: string }) { return <article className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>; }
+function Empty({ title, text }: { title: string; text: string }) { return <div className="empty"><div className="empty-mark">· · ·</div><h3>{title}</h3><p>{text}</p></div>; }
+function Notice({ title, text, action }: { title: string; text: string; action: () => void }) { return <div className="notice"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><div><b>{title}</b><span>{text}</span></div><button onClick={action}>Open settings</button></div>; }
+function Safety({ label, value, good }: { label: string; value: string; good: boolean }) { return <div><span><i className={good ? "check" : "pause-icon"}>{good ? "✓" : "Ⅱ"}</i>{label}</span><b>{value}</b></div>; }
+function Status({ status }: { status: string }) { return <span className={`status ${status}`}>{status.replace("_", " ")}</span>; }
+function Progress({ job }: { job: CollectionJob }) { const done = job.succeededCount + job.failedCount + job.skippedCount; const percent = job.discoveredCount ? Math.round(done / job.discoveredCount * 100) : 0; return <div className="progress-cell"><div><span style={{ width: `${percent}%` }} /></div><small>{done}/{job.discoveredCount} · {percent}%</small></div>; }
+function JobRow({ job }: { job: CollectionJob }) { return <div className="job-row"><div className="job-icon"><Icon path="M12 4v12m0 0 4-4m-4 4-4-4" /></div><div><b>Job #{job.id}</b><span>{job.configuration.start ?? "?"}–{job.configuration.end ?? "?"} · {formatNumber(job.discoveredCount)} tasks</span></div><Status status={job.status} /><time>{formatDate(job.createdAt)}</time></div>; }
+function Icon({ path }: { path: string }) { return <svg aria-hidden="true" viewBox="0 0 24 24"><path d={path} /></svg>; }
+
+const formatNumber = (value: number) => new Intl.NumberFormat().format(value);
+const compactNumber = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
+const formatDateTime = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+function duration(ms: number) { const minutes = Math.ceil(ms / 60000); return minutes < 60 ? `${minutes} min minimum` : `${Math.floor(minutes / 60)}h ${minutes % 60}m minimum`; }

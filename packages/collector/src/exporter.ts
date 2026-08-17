@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { FORMAT_VERSION, type TransferRecords } from "@ao3-offsite/contracts";
 import {
   authors,
   chapters,
+  exportRuns,
   observations,
   series,
   seriesWorks,
@@ -22,10 +23,77 @@ export interface ExportOptions {
   sourceWorkIds: string[];
   outputDirectory: string;
   previousPackageId?: string | null;
+  packageId?: string;
+}
+
+export interface IncrementalExportOptions {
+  sourceId: number;
+  sourceKey: string;
+  origin: string;
+  outputDirectory: string;
+  maximumWorks?: number;
 }
 
 export class MariaDbPackageExporter {
   constructor(private readonly db: CollectorDatabase) {}
+
+  async exportChanged(options: IncrementalExportOptions): Promise<string | null> {
+    const maximumWorks = options.maximumWorks ?? 500;
+    if (!Number.isInteger(maximumWorks) || maximumWorks < 1 || maximumWorks > 5_000) {
+      throw new Error("maximumWorks must be between 1 and 5000");
+    }
+    const changed = await this.db.select({
+      sourceWorkId: works.sourceWorkId,
+      contentHash: works.contentHash,
+    }).from(works).where(and(
+      eq(works.sourceId, options.sourceId),
+      or(isNull(works.lastExportedHash), ne(works.lastExportedHash, works.contentHash)),
+    )).orderBy(asc(works.id)).limit(maximumWorks);
+    if (changed.length === 0) return null;
+
+    const previous = (await this.db.select({ packageId: exportRuns.packageId }).from(exportRuns).where(and(
+      eq(exportRuns.sourceId, options.sourceId), eq(exportRuns.status, "completed"),
+    )).orderBy(desc(exportRuns.completedAt)).limit(1))[0];
+    const packageId = randomUUID();
+    const previousPackageId = previous?.packageId ?? null;
+    await this.db.insert(exportRuns).values({
+      sourceId: options.sourceId,
+      packageId,
+      previousPackageId,
+      status: "writing",
+      outputDirectory: options.outputDirectory,
+      workCount: changed.length,
+    });
+
+    try {
+      await this.export({
+        ...options,
+        sourceWorkIds: changed.map((work) => work.sourceWorkId),
+        previousPackageId,
+        packageId,
+      });
+      const completedAt = new Date();
+      await this.db.transaction(async (tx) => {
+        for (const work of changed) {
+          await tx.update(works).set({
+            lastExportedHash: work.contentHash,
+            lastExportedAt: completedAt,
+            lastExportPackageId: packageId,
+          }).where(and(eq(works.sourceId, options.sourceId), eq(works.sourceWorkId, work.sourceWorkId)));
+        }
+        await tx.update(exportRuns).set({ status: "completed", completedAt, updatedAt: completedAt })
+          .where(eq(exportRuns.packageId, packageId));
+      });
+      return packageId;
+    } catch (error) {
+      await this.db.update(exportRuns).set({
+        status: "failed",
+        errorMessage: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        completedAt: new Date(),
+      }).where(eq(exportRuns.packageId, packageId));
+      throw error;
+    }
+  }
 
   async export(options: ExportOptions): Promise<string> {
     if (options.sourceWorkIds.length === 0) throw new Error("At least one work ID is required for export");
@@ -119,7 +187,7 @@ export class MariaDbPackageExporter {
       })),
     };
 
-    const packageId = randomUUID();
+    const packageId = options.packageId ?? randomUUID();
     const previousPackageId = options.previousPackageId ?? null;
     await writeTransferPackage(options.outputDirectory, {
       manifest: {

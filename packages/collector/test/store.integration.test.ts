@@ -1,8 +1,10 @@
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   authors,
@@ -10,10 +12,12 @@ import {
   collectionJobs,
   collectionTasks,
   createDatabase,
+  exportRuns,
   fetchSnapshots,
   observations,
   series,
   seriesWorks,
+  sourceDailyUsage,
   sources,
   tags,
   workAuthors,
@@ -22,10 +26,14 @@ import {
   type CollectorDatabase,
 } from "@ao3-offsite/database";
 import { readTransferPackage } from "@ao3-offsite/package-tools";
-import { parseEntireWorkHtml } from "@ao3-offsite/scraper-core";
+import { parseEntireWorkHtml, PoliteSourceClient } from "@ao3-offsite/scraper-core";
+import { ContentAddressedBlobStore } from "../src/blob-store.js";
 import { MariaDbPackageExporter } from "../src/exporter.js";
+import { WorkTaskProcessor } from "../src/processor.js";
+import { SourceBudgetStore } from "../src/source-budget-store.js";
 import { CollectorStore } from "../src/store.js";
 import { TaskLeaseStore } from "../src/task-store.js";
+import { CollectorWorker } from "../src/worker.js";
 
 const fixtureUrl = new URL("../../scraper-core/test/fixtures/work-entire.html", import.meta.url);
 const databaseUrl = process.env.COLLECTOR_DATABASE_URL;
@@ -41,11 +49,12 @@ integration("CollectorStore with MariaDB", () => {
   let pool: ReturnType<typeof createDatabase>["pool"];
   let store: CollectorStore;
   let leases: TaskLeaseStore;
+  let budgets: SourceBudgetStore;
   let sourceId: number;
 
   beforeAll(async () => {
     ({ db, pool } = createDatabase(databaseUrl));
-    for (const table of [fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, works, collectionTasks, collectionJobs, sources]) {
+    for (const table of [fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, exportRuns, works, collectionTasks, collectionJobs, sourceDailyUsage, sources]) {
       await db.delete(table);
     }
     sourceId = (await db.insert(sources).values({
@@ -55,11 +64,18 @@ integration("CollectorStore with MariaDB", () => {
     }).$returningId())[0]!.id;
     store = new CollectorStore(db);
     leases = new TaskLeaseStore(db);
+    budgets = new SourceBudgetStore(db);
   });
 
   beforeEach(async () => {
-    await db.delete(collectionTasks);
-    await db.delete(collectionJobs);
+    for (const table of [fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, exportRuns, works, collectionTasks, collectionJobs, sourceDailyUsage]) {
+      await db.delete(table);
+    }
+    await db.update(sources).set({
+      paused: false, origin: "https://archiveofourown.org", minimumDelayMs: 5000,
+      dailyRequestBudget: 250, nextRequestAt: null,
+    })
+      .where(eq(sources.id, sourceId));
   });
 
   afterAll(async () => {
@@ -73,6 +89,27 @@ integration("CollectorStore with MariaDB", () => {
 
     expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, jobId)))).toBe(3);
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.discoveredCount).toBe(3);
+  });
+
+  it("serializes source request slots and enforces daily request and byte budgets", async () => {
+    await db.update(sources).set({ minimumDelayMs: 10_000, dailyRequestBudget: 2 }).where(eq(sources.id, sourceId));
+    const start = new Date("2026-08-17T00:00:00.000Z");
+    const simultaneous = await Promise.all([budgets.reserveRequest(sourceId, start), budgets.reserveRequest(sourceId, start)]);
+    expect(simultaneous.filter((reservation) => reservation.granted)).toHaveLength(1);
+    expect(simultaneous.find((reservation) => !reservation.granted)).toMatchObject({ reason: "delay" });
+
+    const second = await budgets.reserveRequest(sourceId, new Date(start.getTime() + 10_000));
+    expect(second).toMatchObject({ granted: true, remainingToday: 0 });
+    const exhausted = await budgets.reserveRequest(sourceId, new Date(start.getTime() + 20_000));
+    expect(exhausted).toMatchObject({ granted: false, reason: "daily_budget", retryAt: new Date("2026-08-18T00:00:00.000Z") });
+
+    await budgets.recordResponseBytes(sourceId, 100, start);
+    await budgets.recordResponseBytes(sourceId, 200, start);
+    const usage = (await db.select().from(sourceDailyUsage).where(eq(sourceDailyUsage.sourceId, sourceId)))[0]!;
+    expect(usage).toMatchObject({ requestCount: 2, responseBytes: 300 });
+
+    await db.update(sources).set({ paused: true }).where(eq(sources.id, sourceId));
+    expect(await budgets.reserveRequest(sourceId, new Date("2026-08-18T00:00:00.000Z"))).toMatchObject({ granted: false, reason: "paused" });
   });
 
   it("claims tasks exclusively across workers and verifies lease ownership", async () => {
@@ -126,6 +163,50 @@ integration("CollectorStore with MariaDB", () => {
     expect(await leases.claim("after-cancel", 10, 30_000)).toHaveLength(0);
   });
 
+  it("runs a leased task end to end against a local fixture source", async () => {
+    const html = await readFile(fileURLToPath(fixtureUrl), "utf8");
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(html);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const origin = `http://127.0.0.1:${address.port}`;
+    const blobDirectory = await mkdtemp(join(tmpdir(), "ao3-worker-blobs-"));
+    try {
+      await db.update(sources).set({ origin, minimumDelayMs: 2000, dailyRequestBudget: 10 })
+        .where(eq(sources.id, sourceId));
+      const jobId = await store.createIdRangeJob(sourceId, { start: 12345, end: 12345, batchSize: 1 });
+      await store.enqueueWorkIds(jobId, ["12345"]);
+      const worker = new CollectorWorker(leases, budgets, {
+        create(claimed) {
+          return new WorkTaskProcessor(
+            { id: claimed.source.id, origin: claimed.source.origin, includeAdult: true },
+            new PoliteSourceClient({
+              origin: claimed.source.origin,
+              userAgent: "AO3-Offsite-Integration-Test/0.1",
+              minimumDelayMs: claimed.source.minimumDelayMs,
+              maximumAttempts: 1,
+            }),
+            new ContentAddressedBlobStore(blobDirectory),
+            store,
+          );
+        },
+      }, { workerId: "integration-worker", heartbeatMilliseconds: 1_000_000 });
+
+      expect(await worker.processOne()).toBe(true);
+      expect((await db.select().from(collectionTasks).where(eq(collectionTasks.jobId, jobId)))[0]!.status).toBe("succeeded");
+      expect((await db.select().from(works).where(and(eq(works.sourceId, sourceId), eq(works.sourceWorkId, "12345"))))[0]!.title)
+        .toBe("Example Work");
+      expect(firstCount(await db.select({ value: count() }).from(fetchSnapshots).where(eq(fetchSnapshots.sourceWorkId, "12345")))).toBe(1);
+      expect((await db.select().from(sourceDailyUsage).where(eq(sourceDailyUsage.sourceId, sourceId)))[0])
+        .toMatchObject({ requestCount: 1, responseBytes: Buffer.byteLength(html) });
+    } finally {
+      server.close();
+      await rm(blobDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("upserts and reconciles a normalized work transactionally", async () => {
     const html = await readFile(fileURLToPath(fixtureUrl), "utf8");
     const records = parseEntireWorkHtml(html, {
@@ -153,23 +234,40 @@ integration("CollectorStore with MariaDB", () => {
     expect(firstCount(await db.select({ value: count() }).from(workTags).where(eq(workTags.workId, workId)))).toBe(3);
     expect(firstCount(await db.select({ value: count() }).from(observations).where(eq(observations.sourceWorkId, "12345")))).toBe(1);
 
-    const outputDirectory = await mkdtemp(join(tmpdir(), "ao3-mariadb-export-"));
+    const firstOutput = await mkdtemp(join(tmpdir(), "ao3-mariadb-export-"));
+    const secondOutput = await mkdtemp(join(tmpdir(), "ao3-mariadb-export-"));
     try {
-      const packageId = await new MariaDbPackageExporter(db).export({
-        sourceId,
-        sourceKey: "integration-test",
-        origin: "https://archiveofourown.org",
-        sourceWorkIds: ["12345"],
-        outputDirectory,
+      const exporter = new MariaDbPackageExporter(db);
+      const firstPackageId = await exporter.exportChanged({
+        sourceId, sourceKey: "integration-test", origin: "https://archiveofourown.org",
+        outputDirectory: firstOutput,
       });
-      const exported = await readTransferPackage(outputDirectory);
-      expect(exported.manifest.packageId).toBe(packageId);
+      const exported = await readTransferPackage(firstOutput);
+      expect(exported.manifest).toMatchObject({ packageId: firstPackageId, packageType: "snapshot", previousPackageId: null });
       expect(exported.records.works).toMatchObject([{ title: "Updated integration title" }]);
       expect(exported.records.chapters).toHaveLength(1);
       expect(exported.records.workTags).toHaveLength(3);
       expect(exported.records.seriesWorks).toHaveLength(1);
+      expect(await exporter.exportChanged({
+        sourceId, sourceKey: "integration-test", origin: "https://archiveofourown.org",
+        outputDirectory: secondOutput,
+      })).toBeNull();
+
+      await db.update(works).set({ title: "Changed after export", contentHash: `sha256:${"c".repeat(64)}` })
+        .where(eq(works.id, workId));
+      const secondPackageId = await exporter.exportChanged({
+        sourceId, sourceKey: "integration-test", origin: "https://archiveofourown.org",
+        outputDirectory: secondOutput,
+      });
+      const incremental = await readTransferPackage(secondOutput);
+      expect(incremental.manifest).toMatchObject({
+        packageId: secondPackageId, packageType: "incremental", previousPackageId: firstPackageId,
+      });
+      expect(incremental.records.works).toMatchObject([{ title: "Changed after export" }]);
+      expect((await db.select().from(exportRuns).where(eq(exportRuns.status, "completed")))).toHaveLength(2);
     } finally {
-      await rm(outputDirectory, { recursive: true, force: true });
+      await rm(firstOutput, { recursive: true, force: true });
+      await rm(secondOutput, { recursive: true, force: true });
     }
   });
 });

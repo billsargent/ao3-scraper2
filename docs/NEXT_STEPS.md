@@ -26,8 +26,12 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed snapshot package export from normalized MariaDB records.
 - Captured the approved first Harry Potter search-results page once at a 10-second minimum delay. Eighteen of twenty work responses were retained and reprocessed offline; two HTTP 525 responses were left alone.
 - Added a sanitized single-chapter fixture and now support both AO3 single- and multi-chapter page shapes.
-- Remaining Milestone 1 work: daily-budget accounting, distributed source request slots, retry policy wiring, and the long-running worker process.
-- Remaining Milestone 2 work: persistent export/import tracking and automatic incremental selection by previous exported hash.
+- Completed UTC daily-budget accounting, database-backed distributed source request slots, byte accounting, retry policy wiring, and the long-running worker process.
+- Completed persistent export-run tracking, automatic selection by exported content hash, snapshot/incremental lineage, and unchanged-work exclusion.
+- Completed the initial Fastify API for health, safe source creation/configuration, ID-range jobs, job controls, and work browsing.
+- Completed the first responsive React/Vite operator interface: overview, job creation/control, work library, and source safety settings.
+- Remaining Milestone 2 work: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
+- Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
 ---
 

@@ -13,6 +13,10 @@
     "db:migrate": "npm run db:migrate -w @ao3-offsite/database",
     "dataset:capture": "tsx scripts/capture-work-dataset.ts",
     "dataset:reprocess": "tsx scripts/reprocess-work-dataset.ts",
+    "worker:start": "npm run start -w @ao3-offsite/worker",
+    "api:start": "npm run start -w @ao3-offsite/api",
+    "web:dev": "npm run dev -w @ao3-offsite/web",
+    "web:build": "npm run build -w @ao3-offsite/web",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"

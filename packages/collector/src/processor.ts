@@ -34,9 +34,9 @@ export interface CapturedWorkStore {
 }
 
 export type TaskOutcome =
-  | { status: "succeeded"; localWorkId: number; contentHash: string }
-  | { status: "retryable_failed"; code: string; message: string }
-  | { status: "terminal_failed"; code: string; message: string };
+  | { status: "succeeded"; localWorkId: number; contentHash: string; responseBytes: number }
+  | { status: "retryable_failed"; code: string; message: string; responseBytes: number }
+  | { status: "terminal_failed"; code: string; message: string; responseBytes: number };
 
 export class WorkTaskProcessor {
   constructor(
@@ -47,13 +47,15 @@ export class WorkTaskProcessor {
   ) {}
 
   async process(sourceWorkId: string): Promise<TaskOutcome> {
-    if (!/^\d+$/.test(sourceWorkId)) return { status: "terminal_failed", code: "invalid_work_id", message: "Work ID must be numeric" };
+    if (!/^\d+$/.test(sourceWorkId)) return { status: "terminal_failed", code: "invalid_work_id", message: "Work ID must be numeric", responseBytes: 0 };
+    let responseBytes = 0;
     const url = new URL(`/works/${sourceWorkId}`, this.source.origin);
     url.searchParams.set("view_full_work", "true");
     if (this.source.includeAdult) url.searchParams.set("view_adult", "true");
 
     try {
       const fetched = await this.fetcher.fetchText(url);
+      responseBytes = Buffer.byteLength(fetched.body, "utf8");
       const blob = await this.blobs.putHtml(fetched.body);
       await this.store.recordSnapshot({
         sourceId: this.source.id,
@@ -68,11 +70,11 @@ export class WorkTaskProcessor {
       });
       const records = parseEntireWorkHtml(fetched.body, { sourceUrl: fetched.url, capturedAt: fetched.fetchedAt });
       const localWorkId = await this.store.persistCapturedWork(this.source.id, records);
-      return { status: "succeeded", localWorkId, contentHash: records.works[0]!.contentHash };
+      return { status: "succeeded", localWorkId, contentHash: records.works[0]!.contentHash, responseBytes };
     } catch (error) {
       if (error instanceof SourceRequestError) return this.sourceFailure(sourceWorkId, error);
-      if (error instanceof ParseError) return { status: "terminal_failed", code: "parse_failed", message: error.message };
-      return { status: "retryable_failed", code: "unexpected", message: error instanceof Error ? error.message : String(error) };
+      if (error instanceof ParseError) return { status: "terminal_failed", code: "parse_failed", message: error.message, responseBytes };
+      return { status: "retryable_failed", code: "unexpected", message: error instanceof Error ? error.message : String(error), responseBytes };
     }
   }
 
@@ -92,6 +94,7 @@ export class WorkTaskProcessor {
       status: error.retryable ? "retryable_failed" : "terminal_failed",
       code: error.status ? `http_${error.status}` : "network_failed",
       message: error.message,
+      responseBytes: 0,
     };
   }
 }

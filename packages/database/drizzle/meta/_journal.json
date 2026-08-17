@@ -22,6 +22,20 @@
       "when": 1786985725778,
       "tag": "0002_black_omega_red",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786986443162,
+      "tag": "0003_cold_sharon_carter",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1786986772916,
+      "tag": "0004_bright_shaman",
+      "breakpoints": true
     }
   ]
 }

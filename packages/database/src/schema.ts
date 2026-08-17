@@ -36,6 +36,14 @@ export const sources = mysqlTable("sources", {
   ...timestamps,
 }, (table) => [uniqueIndex("sources_key_unique").on(table.key)]);
 
+export const sourceDailyUsage = mysqlTable("source_daily_usage", {
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "cascade" }),
+  usageDate: date("usage_date", { mode: "string" }).notNull(),
+  requestCount: int("request_count", { unsigned: true }).notNull().default(0),
+  responseBytes: bigint("response_bytes", { mode: "number", unsigned: true }).notNull().default(0),
+  ...timestamps,
+}, (table) => [primaryKey({ columns: [table.sourceId, table.usageDate] })]);
+
 export const collectionJobs = mysqlTable("collection_jobs", {
   id: id(),
   sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "restrict" }),
@@ -50,6 +58,22 @@ export const collectionJobs = mysqlTable("collection_jobs", {
   completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
   ...timestamps,
 }, (table) => [index("collection_jobs_source_status").on(table.sourceId, table.status)]);
+
+export const exportRuns = mysqlTable("export_runs", {
+  id: id(),
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "restrict" }),
+  packageId: char("package_id", { length: 36 }).notNull(),
+  previousPackageId: char("previous_package_id", { length: 36 }),
+  status: mysqlEnum("status", ["writing", "completed", "failed"]).notNull().default("writing"),
+  outputDirectory: varchar("output_directory", { length: 1500 }).notNull(),
+  workCount: int("work_count", { unsigned: true }).notNull().default(0),
+  errorMessage: text("error_message"),
+  completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("export_runs_package_unique").on(table.packageId),
+  index("export_runs_source_status").on(table.sourceId, table.status, table.completedAt),
+]);
 
 export const collectionTasks = mysqlTable("collection_tasks", {
   id: id(),
@@ -89,6 +113,9 @@ export const works = mysqlTable("works", {
   firstSeenAt: datetime("first_seen_at", { mode: "date", fsp: 3 }).notNull(),
   lastSeenAt: datetime("last_seen_at", { mode: "date", fsp: 3 }).notNull(),
   lastSuccessfulCaptureAt: datetime("last_successful_capture_at", { mode: "date", fsp: 3 }),
+  lastExportedHash: char("last_exported_hash", { length: 71 }),
+  lastExportedAt: datetime("last_exported_at", { mode: "date", fsp: 3 }),
+  lastExportPackageId: char("last_export_package_id", { length: 36 }),
   ...timestamps,
 }, (table) => [
   uniqueIndex("works_source_identity_unique").on(table.sourceId, table.sourceWorkId),

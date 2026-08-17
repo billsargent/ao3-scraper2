@@ -129,6 +129,21 @@ export class TaskLeaseStore {
     return true;
   }
 
+  async defer(taskId: number, leaseToken: string, availableAt: Date, reason: string): Promise<boolean> {
+    const result = await this.db.update(collectionTasks).set({
+      status: "queued",
+      availableAt,
+      leaseExpiresAt: null,
+      leasedBy: null,
+      lastErrorCode: reason,
+      lastErrorMessage: null,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(collectionTasks.id, taskId), eq(collectionTasks.status, "leased"), eq(collectionTasks.leasedBy, leaseToken),
+    ));
+    return affectedRows(result) === 1;
+  }
+
   async reclaimExpired(now = new Date()): Promise<void> {
     await this.db.execute(sql`
       UPDATE collection_tasks AS task
