@@ -10,6 +10,12 @@ module PreservationImport
       "Freeform" => :freeform_strings=
     }.freeze
 
+    TAG_ALIASES = {
+      "ArchiveWarning" => {
+        "Creator Chose Not To Use Archive Warnings" => ArchiveConfig.WARNING_DEFAULT_TAG_NAME
+      }
+    }.freeze
+
     def initialize(package_path:, archivist_login:, dry_run: false)
       @reader = PackageReader.new(package_path)
       @archivist = User.find_by!(login: archivist_login)
@@ -18,7 +24,7 @@ module PreservationImport
 
     def call
       existing_run = PreservationImportRun.find_by(package_id: @reader.manifest.fetch("packageId"))
-      return existing_run if existing_run&.status == "completed"
+      return existing_run if existing_run&.status == "completed" && existing_run.works_failed.zero?
       verify_previous_package!
 
       @run = existing_run || PreservationImportRun.create!(
@@ -26,6 +32,7 @@ module PreservationImport
         package_path: @reader.path.to_s,
         status: "running"
       )
+      @run.update!(status: "running", works_failed: 0, error_message: nil, completed_at: nil) if existing_run
       @notifier = CollectorNotifier.new(package_id: @reader.manifest.fetch("packageId"), run_id: @run.id)
       @notifier.mark("importing") unless @dry_run
       load_package_indexes
@@ -35,8 +42,15 @@ module PreservationImport
       import_authors
       @reader.each_record("works.jsonl") { |record| import_work_safely(record) }
       import_series
-      @run.update!(status: @dry_run ? "verified" : "completed", completed_at: Time.current)
-      @notifier&.mark("imported") unless @dry_run
+      final_status = @dry_run ? "verified" : (@run.works_failed.zero? ? "completed" : "partial")
+      @run.update!(status: final_status, completed_at: Time.current)
+      unless @dry_run
+        if final_status == "completed"
+          @notifier&.mark("imported")
+        else
+          @notifier&.mark("failed", error: "#{@run.works_failed} works failed to import")
+        end
+      end
       @run
     rescue StandardError => e
       @run&.update!(status: "failed", error_message: "#{e.class}: #{e.message}", completed_at: Time.current)
@@ -161,7 +175,9 @@ module PreservationImport
       grouped["ArchiveWarning"] ||= [{ "name" => ArchiveConfig.WARNING_DEFAULT_TAG_NAME }]
       grouped["Fandom"] ||= [{ "name" => ArchiveConfig.FANDOM_NO_TAG_NAME }]
       TAG_SETTERS.each do |type, setter|
-        work.public_send(setter, Array(grouped[type]).map { |tag| tag.fetch("name") })
+        names = Array(grouped[type]).map { |tag| tag.fetch("name") }
+        names.map! { |name| TAG_ALIASES.fetch(type, {}).fetch(name, name) }
+        work.public_send(setter, names)
       end
     end
 

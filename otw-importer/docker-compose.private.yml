@@ -1,0 +1,25 @@
+services:
+  es:
+    environment:
+      ES_JAVA_OPTS: "-Xms128m -Xmx128m"
+      xpack.ml.enabled: "false"
+      xpack.watcher.enabled: "false"
+      xpack.security.enabled: "false"
+      ingest.geoip.downloader.enabled: "false"
+
+  web:
+    environment:
+      OTW_PRIVATE_MODE: "true"
+      COLLECTOR_CALLBACK_URL: ${COLLECTOR_CALLBACK_URL:-}
+      COLLECTOR_API_TOKEN: ${COLLECTOR_API_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports: !override
+      - "${OTW_BIND_ADDRESS:-127.0.0.1}:${OTW_WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  resque:
+    environment:
+      OTW_PRIVATE_MODE: "true"
+      QUEUE: "*"
+    restart: unless-stopped

@@ -29,6 +29,10 @@
     "production:up": "bash scripts/production-up.sh",
     "production:down": "bash scripts/production-down.sh",
     "production:backup": "bash scripts/backup-production.sh",
+    "otw:up": "bash scripts/otw-private-up.sh",
+    "otw:down": "bash scripts/otw-private-down.sh",
+    "otw:import": "bash scripts/otw-private-import.sh",
+    "otw:backup": "bash scripts/otw-private-backup.sh",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"

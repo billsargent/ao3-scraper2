@@ -36,6 +36,7 @@ Implemented:
 - Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, asynchronous transfer-package inspection, paginated library, offline chapter reader, and granular source policy
 - Playwright browser coverage for authentication, job creation/control, pagination, reading, source policy, package inspection, download, and OTW status
 - One-command low-memory pipeline proof from fixture parsing through MariaDB export into native OTW works, chapters, tags, source identities, and series
+- Persistent private OTW profile with noindex/private-cache headers, email disabled, dedicated archivist account, package imports, and OTW backup/restore
 - Production Docker profile with health checks, internal networking, restart policies, Nginx security headers, bounded logs, and automatic migrations
 - Consistent MariaDB plus blob/export backup, checksum verification, destructive restore guard, and restore-drill documentation
 - GitHub CI for TypeScript, Playwright, MariaDB, audits, and container builds; tag releases publish multi-architecture SBOM/provenance images signed with keyless Cosign

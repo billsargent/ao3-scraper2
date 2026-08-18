@@ -41,6 +41,7 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed the one-command low-memory collector-to-OTW proof: local fixture → MariaDB → verified export → seeded OTW test database → native archive records.
 - Completed a production Docker profile with service supervision, health checks, internal networking, Nginx, consistent backups, guarded restores, and restore-drill documentation.
 - Completed CI and signed release workflows with SBOMs, provenance, GitHub attestations, and keyless Cosign signatures.
+- Completed a persistent private OTW profile and imported the full 18-work/79-chapter validation batch with zero failures.
 - Remaining work has moved from core pipeline correctness to monitoring, scheduled drills, and optional content scope: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
