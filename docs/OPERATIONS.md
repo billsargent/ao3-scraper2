@@ -5,7 +5,7 @@ The control API and worker are now separate processes. MariaDB is authoritative:
 ## Start local dependencies
 
 ```bash
-cp .env.example .env
+cp env.example .env
 docker compose up -d --wait collector-db
 set -a
 source .env
@@ -260,6 +260,6 @@ docker compose down
 
 - Authentication is a single operator bearer token, not multi-user accounts or role-based access.
 - Events currently carry job snapshots; per-task log events and historical replay are not implemented yet.
-- Large range discovery still happens during the API request, capped at 10,000 IDs.
+- Large range discovery is asynchronous and capped at 10,000,000 IDs per job as a configuration guard.
 - Export creation is implemented as a library and integration-tested but is not exposed through an asynchronous API endpoint yet.
 - A real contact address is required to run the worker; it is intentionally not committed to the repository.

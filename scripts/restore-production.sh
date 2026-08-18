@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/docker.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.production}"
 BACKUP="${1:-}"
 [ -d "$BACKUP" ] || { echo "Usage: CONFIRM_RESTORE=yes $0 /path/to/backup" >&2; exit 1; }
@@ -9,7 +10,7 @@ BACKUP="${1:-}"
 (cd "$BACKUP" && sha256sum -c checksums.sha256)
 set -a; source "$ENV_FILE"; set +a
 DATA_DIR="${DATA_DIR:-$ROOT/data}"; [[ "$DATA_DIR" = /* ]] || DATA_DIR="$ROOT/$DATA_DIR"
-COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$ROOT/compose.production.yml")
+COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE" -f "$ROOT/compose.production.yml")
 
 printf 'Stopping application services...\n'
 "${COMPOSE[@]}" stop web api collector-worker planner-worker export-worker >/dev/null || true

@@ -2,10 +2,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/docker.sh"
 OTW_DIR="${OTW_DIR:-$ROOT/../otwarchive}"
 COLLECTOR_DATABASE_URL="${COLLECTOR_DATABASE_URL:-mysql://collector:collector_local_only@localhost:3307/ao3_collector}"
-COMPOSE=(sudo docker compose)
-OTW_COMPOSE=(sudo docker compose -f docker-compose.yml -f docker-compose.preservation-test.yml)
+COMPOSE=("${DOCKER[@]}" compose)
+OTW_COMPOSE=("${DOCKER[@]}" compose -f docker-compose.yml -f docker-compose.preservation-test.yml)
 
 log() { printf '\n\033[1;35m==> %s\033[0m\n' "$*"; }
 fail() { echo "ERROR: $*" >&2; exit 1; }

@@ -16,7 +16,7 @@ Transfer packages and the Rails importer are the boundary between the applicatio
 ## Local database
 
 ```bash
-cp .env.example .env
+cp env.example .env
 # Export COLLECTOR_DATABASE_URL from .env in your shell or process manager.
 docker compose up -d collector-db
 npm run db:migrate -w @ao3-offsite/database

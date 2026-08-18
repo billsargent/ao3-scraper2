@@ -6,6 +6,15 @@ This is a fresh project. The cloned `ao3-scraper` and `otwarchive` repositories 
 
 **New operator? Start with [`docs/START_HERE.md`](docs/START_HERE.md).** It covers development, production, collection safety, package export, persistent OTW setup/import, backups, testing, and troubleshooting in one sequence. See [`docs/PORTS_AND_HARDWARE.md`](docs/PORTS_AND_HARDWARE.md) for every port and Raspberry Pi sizing.
 
+Complete setup and lifecycle:
+
+```bash
+npm run setup:all -- --start
+npm run services:status
+npm run services:backup
+npm run services:stop
+```
+
 ## Current vertical slice
 
 Implemented:
@@ -108,7 +117,7 @@ A real team contact address is still required before routine collector operation
 The collector uses MariaDB/MySQL via `mysql2` and Drizzle. Its database is separate from OTW Archive even if both eventually share a MariaDB server.
 
 ```bash
-cp .env.example .env
+cp env.example .env
 docker compose up -d collector-db
 export COLLECTOR_DATABASE_URL=mysql://collector:collector_local_only@localhost:3307/ao3_collector
 npm run db:migrate

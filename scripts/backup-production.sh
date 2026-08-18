@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/docker.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.production}"
 [ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE" >&2; exit 1; }
 set -a; source "$ENV_FILE"; set +a
@@ -8,7 +9,7 @@ DATA_DIR="${DATA_DIR:-$ROOT/data}"; [[ "$DATA_DIR" = /* ]] || DATA_DIR="$ROOT/$D
 BACKUP_ROOT="${BACKUP_DIR:-$ROOT/backups}"; [[ "$BACKUP_ROOT" = /* ]] || BACKUP_ROOT="$ROOT/$BACKUP_ROOT"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 PARTIAL="$BACKUP_ROOT/.${STAMP}.partial"; FINAL="$BACKUP_ROOT/$STAMP"
-COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$ROOT/compose.production.yml")
+COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE" -f "$ROOT/compose.production.yml")
 mkdir -p "$PARTIAL" "$DATA_DIR"
 
 resume() { "${COMPOSE[@]}" start api collector-worker planner-worker export-worker web >/dev/null 2>&1 || true; }

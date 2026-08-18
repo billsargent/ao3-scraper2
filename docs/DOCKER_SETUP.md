@@ -92,7 +92,7 @@ Docker Desktop should be running before executing Compose commands.
 From the `ao3-offsite-pipeline` directory:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 npm install
 ```
 

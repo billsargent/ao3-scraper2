@@ -13,7 +13,7 @@ This profile runs the collector control plane. OTW Archive remains a separate de
 ## Configure
 
 ```bash
-cp .env.production.example .env.production
+cp env.production.example .env.production
 openssl rand -hex 32
 ```
 
@@ -23,8 +23,23 @@ The AO3 source is created paused. Review Browser ID, delay, request/byte budgets
 
 ## Start
 
+Collector only:
+
 ```bash
 ./scripts/production-up.sh
+```
+
+Collector and private OTW together:
+
+```bash
+bash scripts/all-services.sh start all
+```
+
+Stop or inspect the complete stack:
+
+```bash
+bash scripts/all-services.sh status all
+bash scripts/all-services.sh stop all
 ```
 
 Open `http://localhost:8080` by default. Enter `API_TOKEN` at the unlock screen.

@@ -5,7 +5,7 @@ The disposable test environment is not the persistent archive. This profile keep
 ## Configure and start
 
 ```bash
-cp .env.otw-private.example .env.otw-private
+cp env.otw-private.example .env.otw-private
 # Set a strong OTW_ARCHIVIST_PASSWORD
 npm run otw:up
 ```

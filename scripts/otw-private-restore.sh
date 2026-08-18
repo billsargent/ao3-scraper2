@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/docker.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.otw-private}"; BACKUP="${1:-}"
 [ -d "$BACKUP" ] || { echo "Usage: CONFIRM_RESTORE=yes $0 /path/to/otw-backup" >&2; exit 1; }
 [ "${CONFIRM_RESTORE:-no}" = yes ] || { echo "Refusing restore without CONFIRM_RESTORE=yes" >&2; exit 1; }
 (cd "$BACKUP" && sha256sum -c checksums.sha256)
 set -a; source "$ENV_FILE"; set +a
 OTW_DIR="$(cd "${OTW_DIR:-$ROOT/../otwarchive}" && pwd)"
-COMPOSE=(sudo docker compose --env-file "$ENV_FILE" -f "$OTW_DIR/docker-compose.yml" -f "$OTW_DIR/docker-compose.private.yml" --profile dev)
+COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE" -f "$OTW_DIR/docker-compose.yml" -f "$OTW_DIR/docker-compose.private.yml" --profile dev)
 "${COMPOSE[@]}" stop web resque >/dev/null 2>&1 || true
 "${COMPOSE[@]}" up -d db redis mc es
 "${COMPOSE[@]}" exec -T db mariadb -uroot -pchange_me <<SQL

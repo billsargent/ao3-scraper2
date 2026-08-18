@@ -45,6 +45,34 @@ If your OTW checkout is elsewhere, set `OTW_DIR` in `.env.otw-private`.
 
 ---
 
+# Fastest complete setup
+
+The setup script generates secrets, builds collector and OTW images, installs the importer, and optionally starts both stacks:
+
+```bash
+npm run setup:all -- --start
+```
+
+First OTW build can take a long time. To prepare without starting:
+
+```bash
+npm run setup:all
+npm run services:start
+```
+
+Control the entire persistent stack with one command:
+
+```bash
+bash scripts/all-services.sh start all
+bash scripts/all-services.sh status all
+bash scripts/all-services.sh backup all
+bash scripts/all-services.sh stop all
+```
+
+This complete mode uses the production collector UI on `http://localhost:8080` and private OTW on `http://localhost:3000`. New source records remain paused until explicitly enabled.
+
+---
+
 # Part 1 — Development collector
 
 ## 1. Install dependencies
@@ -57,7 +85,7 @@ npm install
 ## 2. Configure local development
 
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
 The checked-in defaults are local-development values. The AO3 source policy itself is stored in MariaDB and edited through the UI.
@@ -249,7 +277,7 @@ Use **Inspect** to view manifest counts, verification, SHA-256, download, and OT
 ## 1. Configure
 
 ```bash
-cp .env.otw-private.example .env.otw-private
+cp env.otw-private.example .env.otw-private
 ```
 
 Change at minimum:
@@ -350,7 +378,7 @@ Never add `-v` unless you intentionally want to delete OTW MariaDB volumes.
 ## Configure
 
 ```bash
-cp .env.production.example .env.production
+cp env.production.example .env.production
 ```
 
 Replace every `change-me` value. Set host UID/GID and a long random API token.

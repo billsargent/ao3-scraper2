@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/docker.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.otw-private}"
-[ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE; copy .env.otw-private.example and edit it." >&2; exit 1; }
+[ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE; copy env.otw-private.example and edit it." >&2; exit 1; }
 set -a; source "$ENV_FILE"; set +a
 OTW_DIR="$(cd "${OTW_DIR:-$ROOT/../otwarchive}" && pwd)"
 [ "$OTW_ARCHIVIST_PASSWORD" != "change-me-to-a-strong-password" ] || { echo "Change OTW_ARCHIVIST_PASSWORD" >&2; exit 1; }
@@ -21,7 +22,7 @@ cp "$OTW_DIR/config/docker/database.yml" "$OTW_DIR/config/database.yml"
 cp "$OTW_DIR/config/docker/redis.yml" "$OTW_DIR/config/redis.yml"
 chmod +x "$OTW_DIR"/bin/* "$OTW_DIR"/script/reset_database.sh 2>/dev/null || true
 
-COMPOSE=(sudo docker compose --env-file "$ENV_FILE" -f "$OTW_DIR/docker-compose.yml" -f "$OTW_DIR/docker-compose.private.yml" --profile dev)
+COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE" -f "$OTW_DIR/docker-compose.yml" -f "$OTW_DIR/docker-compose.private.yml" --profile dev)
 "${COMPOSE[@]}" up -d db redis mc es
 for _ in $(seq 1 120); do curl -fsS http://localhost:9200 >/dev/null 2>&1 && break; sleep 2; done
 curl -fsS http://localhost:9200 >/dev/null || { echo "Elasticsearch failed to start" >&2; exit 1; }

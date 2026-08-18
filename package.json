@@ -33,6 +33,12 @@
     "otw:down": "bash scripts/otw-private-down.sh",
     "otw:import": "bash scripts/otw-private-import.sh",
     "otw:backup": "bash scripts/otw-private-backup.sh",
+    "setup:all": "bash scripts/setup-all.sh",
+    "services:start": "bash scripts/all-services.sh start all",
+    "services:stop": "bash scripts/all-services.sh stop all",
+    "services:status": "bash scripts/all-services.sh status all",
+    "services:backup": "bash scripts/all-services.sh backup all",
+    "docs:verify": "bash scripts/verify-docs.sh",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"
