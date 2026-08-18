@@ -4,7 +4,7 @@ A private, offline pipeline for moving conservatively collected public AO3 work 
 
 This is a fresh project. The cloned `ao3-scraper` and `otwarchive` repositories are references only.
 
-**New operator? Start with [`docs/START_HERE.md`](docs/START_HERE.md).** It covers development, production, collection safety, package export, persistent OTW setup/import, backups, testing, and troubleshooting in one sequence.
+**New operator? Start with [`docs/START_HERE.md`](docs/START_HERE.md).** It covers development, production, collection safety, package export, persistent OTW setup/import, backups, testing, and troubleshooting in one sequence. See [`docs/PORTS_AND_HARDWARE.md`](docs/PORTS_AND_HARDWARE.md) for every port and Raspberry Pi sizing.
 
 ## Current vertical slice
 

@@ -4,6 +4,8 @@ This guide is the primary operator runbook. The other documents provide deeper r
 
 ## What the system contains
 
+For a complete URL/port table and Raspberry Pi sizing guidance, see [`PORTS_AND_HARDWARE.md`](PORTS_AND_HARDWARE.md).
+
 Two applications cooperate but keep separate databases:
 
 1. **Archive Relay collector** — TypeScript API, workers, Vite interface, MariaDB, raw-response storage, and verified transfer packages.
