@@ -1,0 +1,123 @@
+name: archive-relay
+
+x-node-service: &node-service
+  image: archive-relay-app:${APP_VERSION:-local}
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: app
+  restart: unless-stopped
+  init: true
+  user: "${APP_UID:-1000}:${APP_GID:-1000}"
+  read_only: true
+  tmpfs:
+    - /tmp
+  environment: &node-environment
+    NODE_ENV: production
+    TZ: ${TZ:-UTC}
+    COLLECTOR_DATABASE_URL: ${COLLECTOR_DATABASE_URL:?Set COLLECTOR_DATABASE_URL}
+  depends_on:
+    collector-db:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+services:
+  collector-db:
+    image: ${MARIADB_IMAGE:-mariadb:10.11}
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?Set MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${COLLECTOR_DATABASE_NAME:-ao3_collector}
+      MARIADB_USER: ${COLLECTOR_DATABASE_USER:-collector}
+      MARIADB_PASSWORD: ${COLLECTOR_DATABASE_PASSWORD:?Set COLLECTOR_DATABASE_PASSWORD}
+      TZ: ${TZ:-UTC}
+    command:
+      - mariadbd
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-file-per-table=1
+    volumes:
+      - collector-mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  api:
+    <<: *node-service
+    command: ["sh", "-c", "node packages/database/dist/migrate.js && exec node apps/api/dist/index.js"]
+    environment:
+      <<: *node-environment
+      API_HOST: 0.0.0.0
+      API_PORT: 3001
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN}
+      EXPORT_DIRECTORY: /data/exports
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  collector-worker:
+    <<: *node-service
+    command: ["node", "apps/worker/dist/index.js"]
+    environment:
+      <<: *node-environment
+      COLLECTOR_BLOB_DIRECTORY: /data/blobs
+      WORKER_ID: collector-worker-1
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+
+  planner-worker:
+    <<: *node-service
+    command: ["node", "apps/planner-worker/dist/index.js"]
+    environment:
+      <<: *node-environment
+      PLANNER_WORKER_ID: planner-worker-1
+
+  export-worker:
+    <<: *node-service
+    command: ["node", "apps/export-worker/dist/index.js"]
+    environment:
+      <<: *node-environment
+      EXPORT_WORKER_ID: export-worker-1
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+
+  web:
+    image: archive-relay-web:${APP_VERSION:-local}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+volumes:
+  collector-mariadb:

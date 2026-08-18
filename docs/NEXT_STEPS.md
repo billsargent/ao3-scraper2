@@ -39,7 +39,9 @@ The next objective is to turn these proven components into a resumable operator-
 - Completed multi-worker export safety with per-source leases, transactional sequence/parent assignment, crash reuse, and parallel exports across different sources.
 - Completed Playwright browser tests for authentication, job creation/control, source policy, paginated reading, package inspection/download, and OTW status.
 - Completed the one-command low-memory collector-to-OTW proof: local fixture → MariaDB → verified export → seeded OTW test database → native archive records.
-- Remaining work has moved from core pipeline correctness to deployment, operations, and optional content scope: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
+- Completed a production Docker profile with service supervision, health checks, internal networking, Nginx, consistent backups, guarded restores, and restore-drill documentation.
+- Completed CI and signed release workflows with SBOMs, provenance, GitHub attestations, and keyless Cosign signatures.
+- Remaining work has moved from core pipeline correctness to monitoring, scheduled drills, and optional content scope: OTW import-status tracking and recovery/finalization of an export interrupted after file creation.
 - Remaining Milestone 4 work: authentication, Server-Sent Events, asynchronous large-range planning, and asynchronous export endpoints.
 
 ---
@@ -280,9 +282,9 @@ Do not implement until the team has explicit authorization, a secure credential 
 
 The completed foundation now includes durable workers, source budgets, package export, local fixture end-to-end collection, the Fastify API, the first Vite interface, and the approved live validation dataset. The next coding sequence is:
 
-1. Signed/automated deployment artifacts
-2. Backup/restore automation and deployment profiles
-3. Production process supervision, metrics, and alerting
+1. Production metrics and alerting
+2. Scheduled automated backup verification and restore drills
+3. Optional comments and embedded-asset capture policy
 4. One-command low-memory collector-to-OTW integration test
 5. Deployment and backup profiles
 

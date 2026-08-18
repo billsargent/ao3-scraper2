@@ -36,6 +36,9 @@ Implemented:
 - Responsive React/Vite operator interface with token unlock, dashboard, jobs, failure review/retry, asynchronous transfer-package inspection, paginated library, offline chapter reader, and granular source policy
 - Playwright browser coverage for authentication, job creation/control, pagination, reading, source policy, package inspection, download, and OTW status
 - One-command low-memory pipeline proof from fixture parsing through MariaDB export into native OTW works, chapters, tags, source identities, and series
+- Production Docker profile with health checks, internal networking, restart policies, Nginx security headers, bounded logs, and automatic migrations
+- Consistent MariaDB plus blob/export backup, checksum verification, destructive restore guard, and restore-drill documentation
+- GitHub CI for TypeScript, Playwright, MariaDB, audits, and container builds; tag releases publish multi-architecture SBOM/provenance images signed with keyless Cosign
 - Limited live validation dataset from the first Harry Potter search-results page
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests
@@ -185,8 +188,8 @@ The OTW importer has also been installed into the reference OTW checkout and run
 
 ## Next steps
 
-1. Add signed deployment artifacts and backup/restore automation.
-2. Add production process supervision and health monitoring.
-3. Add comments and embedded assets only after the core pipeline is reliable.
+1. Add production metrics/alerting and scheduled restore drills.
+2. Add optional comments and embedded-asset capture policies.
+3. Prepare the first versioned release after repository ownership and registry names are chosen.
 
 The detailed roadmap is maintained in `docs/NEXT_STEPS.md`.

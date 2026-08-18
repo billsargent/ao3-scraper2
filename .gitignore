@@ -9,3 +9,5 @@ playwright-report/
 *.tsbuildinfo
 *.log
 .env
+.env.production
+backups/

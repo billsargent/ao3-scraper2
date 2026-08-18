@@ -26,6 +26,9 @@
     "test:e2e": "playwright test",
     "e2e:build-package": "tsx scripts/build-e2e-package.ts",
     "test:full-pipeline": "bash scripts/test-full-pipeline.sh",
+    "production:up": "bash scripts/production-up.sh",
+    "production:down": "bash scripts/production-down.sh",
+    "production:backup": "bash scripts/backup-production.sh",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",
     "package:verify": "tsx apps/package-cli/src/index.ts verify"
