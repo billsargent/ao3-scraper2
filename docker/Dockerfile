@@ -1,4 +1,6 @@
 FROM node:20-bookworm-slim AS build
+ARG APP_COMMIT=development
+ENV APP_COMMIT=$APP_COMMIT
 WORKDIR /app
 COPY . .
 RUN npm ci
@@ -6,7 +8,9 @@ RUN npm run build && npm run web:build
 RUN npm prune --omit=dev
 
 FROM node:20-bookworm-slim AS app
-ENV NODE_ENV=production
+ARG APP_COMMIT=development
+ENV NODE_ENV=production APP_COMMIT=$APP_COMMIT
+LABEL org.opencontainers.image.revision=$APP_COMMIT
 WORKDIR /app
 RUN mkdir -p /data/blobs /data/exports && chown -R node:node /data
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./

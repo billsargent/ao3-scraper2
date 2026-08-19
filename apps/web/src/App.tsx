@@ -35,7 +35,7 @@ export default function App() {
       </nav>
       <div className="sidebar-foot">
         <div className="status-row"><span className={health.isSuccess ? "status-dot good" : "status-dot bad"} /><span>{health.isSuccess ? "API connected" : "API unavailable"}</span></div>
-        <div className="version">Collector 0.1 · Private</div>
+        <div className="version">UI {__APP_COMMIT__} · API {health.data?.commit ?? "offline"}</div>
       </div>
     </aside>
     <main>

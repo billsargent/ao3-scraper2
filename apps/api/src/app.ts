@@ -55,7 +55,7 @@ const SourceCreateBody = z.object({
 }).and(SourcePolicy);
 const SourceBody = SourcePolicy.and(z.object({ paused: z.boolean() }));
 
-export interface ApiSecurityOptions { apiToken?: string; logger?: boolean }
+export interface ApiSecurityOptions { apiToken?: string; logger?: boolean; commit?: string }
 
 export function buildApp(services: ApiServices, security: ApiSecurityOptions = {}): FastifyInstance {
   const app = Fastify({ logger: security.logger ?? false });
@@ -85,13 +85,14 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     });
   });
 
-  app.get("/api/health/live", async () => ({ status: "ok" }));
+  const commit = security.commit ?? "development";
+  app.get("/api/health/live", async () => ({ status: "ok", commit }));
   app.get("/api/health/ready", async (_request, reply) => {
     try {
       await services.ready();
-      return { status: "ready" };
+      return { status: "ready", commit };
     } catch {
-      return reply.status(503).send({ status: "not_ready" });
+      return reply.status(503).send({ status: "not_ready", commit });
     }
   });
   app.get("/api/events", async (request, reply) => {

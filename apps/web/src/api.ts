@@ -233,7 +233,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string }>("/api/health/ready"),
+  health: () => request<{ status: string; commit: string }>("/api/health/ready"),
   sources: () => request<{ sources: Source[] }>("/api/sources"),
   createSource: (body: { key: string; origin: string }) => request<{ sourceId: number; paused: boolean }>("/api/sources", {
     method: "POST", body: JSON.stringify(body),

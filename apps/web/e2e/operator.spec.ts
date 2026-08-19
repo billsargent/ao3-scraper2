@@ -36,8 +36,8 @@ async function mockApi(page: Page, requireToken = false) {
       return route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"unauthorized"}' });
     }
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
-    if (url.pathname === "/api/health/live") return json({ status: "ok" });
-    if (url.pathname === "/api/health/ready") return json({ status: "ready" });
+    if (url.pathname === "/api/health/live") return json({ status: "ok", commit: "api-test" });
+    if (url.pathname === "/api/health/ready") return json({ status: "ready", commit: "api-test" });
     if (url.pathname === "/api/events") return route.fulfill({ status: 200, contentType: "text/event-stream", body: `event: jobs\ndata: {"jobs":[]}\n\nevent: exports\ndata: ${JSON.stringify({ exports: [exportRecord], total: 1 })}\n\n` });
     if (url.pathname === "/api/sources" && request.method() === "GET") return json({ sources: [source] });
     if (url.pathname.startsWith("/api/sources/") && request.method() === "PUT") return json({ updated: true });
@@ -78,6 +78,7 @@ async function mockApi(page: Page, requireToken = false) {
 test("library is a paginated list and opens the offline reader", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");
+  await expect(page.getByText(/UI .+ · API api-test/)).toBeVisible();
   await page.getByRole("button", { name: "Archive library" }).click();
   await expect(page.getByRole("heading", { name: "18 collected works" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Harry Potter meets Harry Potter Complete · EN" })).toBeVisible();

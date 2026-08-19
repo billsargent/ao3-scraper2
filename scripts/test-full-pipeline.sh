@@ -60,11 +60,11 @@ done
 curl -fsS http://localhost:9200 >/dev/null || fail "Elasticsearch did not become ready"
 
 log "Preparing disposable OTW test database"
-"${OTW_COMPOSE[@]}" run --rm --no-deps -e RAILS_ENV=test test \
+"${OTW_COMPOSE[@]}" run --rm -T --no-deps -e RAILS_ENV=test test \
   bundle exec rake db:otwseed
 
 log "Running collector-to-OTW integration specs"
-"${OTW_COMPOSE[@]}" run --rm --no-deps \
+"${OTW_COMPOSE[@]}" run --rm -T --no-deps \
   -e RAILS_ENV=test \
   -e PRESERVATION_E2E_PACKAGE=/otwa/spec/fixtures/preservation/e2e-package \
   -e PRESERVATION_FIXTURE_PACKAGE=/otwa/spec/fixtures/preservation/package-v1 \

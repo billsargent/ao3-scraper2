@@ -84,7 +84,7 @@ bash scripts/all-services.sh start otw
 bash scripts/all-services.sh stop otw
 ```
 
-`services:start` does not rerun the setup wizard or regenerate secrets. It starts already-built images.
+`services:start` does not rerun the setup wizard or regenerate secrets. It starts already-built images. The collector sidebar displays both the UI build commit and API commit; if they differ, rebuild with `npm run production:up` and hard-refresh the browser.
 
 ---
 
@@ -305,7 +305,15 @@ Refresh the job detail. Pausing now:
 
 ### `validation_error`
 
-The UI now displays the field name and API explanation. Numeric source controls accept any non-negative whole number; zero disables/unlimits the setting as listed above.
+The UI now displays the field name and API explanation. Numeric source controls accept any non-negative whole number; zero disables/unlimits the setting as listed above. Open **Debug log** to see the request path, status, duration, server message, validation issues, and request ID. Download the JSON when asking for support.
+
+### A terminal stays on `otwarchive-web-run-... Created`
+
+First-time OTW database seeding can take several minutes. The current scripts use non-interactive one-off containers and timeouts. `Ctrl+C` should stop the command. From another terminal, run this from the repository root to stop services and remove one-off containers:
+
+```bash
+npm run services:stop
+```
 
 ### OTW search is stale
 

@@ -28,12 +28,12 @@ for _ in $(seq 1 120); do curl -fsS http://localhost:9200 >/dev/null 2>&1 && bre
 curl -fsS http://localhost:9200 >/dev/null || { echo "Elasticsearch failed to start" >&2; exit 1; }
 
 if ! "${COMPOSE[@]}" exec -T db mariadb -uroot -pchange_me -N -e "SHOW DATABASES LIKE 'otwarchive_development'" | grep -q otwarchive_development; then
-  timeout 900 "${COMPOSE[@]}" run --rm --no-deps web bundle exec rake db:otwseed
+  timeout 900 "${COMPOSE[@]}" run --rm -T --no-deps web bundle exec rake db:otwseed
 else
-  timeout 900 "${COMPOSE[@]}" run --rm --no-deps web bundle exec rake db:migrate
+  timeout 900 "${COMPOSE[@]}" run --rm -T --no-deps web bundle exec rake db:migrate
 fi
 
-timeout 300 "${COMPOSE[@]}" run --rm --no-deps \
+timeout 300 "${COMPOSE[@]}" run --rm -T --no-deps \
   -e OTW_ARCHIVIST_LOGIN="$OTW_ARCHIVIST_LOGIN" \
   -e OTW_ARCHIVIST_EMAIL="$OTW_ARCHIVIST_EMAIL" \
   -e OTW_ARCHIVIST_PASSWORD="$OTW_ARCHIVIST_PASSWORD" \

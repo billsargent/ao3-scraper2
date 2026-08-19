@@ -60,8 +60,8 @@ describe("Fastify control API", () => {
 
   it("reports process and database health", async () => {
     const app = buildApp(services()); apps.push(app);
-    expect((await app.inject({ method: "GET", url: "/api/health/live" })).json()).toEqual({ status: "ok" });
-    expect((await app.inject({ method: "GET", url: "/api/health/ready" })).json()).toEqual({ status: "ready" });
+    expect((await app.inject({ method: "GET", url: "/api/health/live" })).json()).toEqual({ status: "ok", commit: "development" });
+    expect((await app.inject({ method: "GET", url: "/api/health/ready" })).json()).toEqual({ status: "ready", commit: "development" });
   });
 
   it("creates a bounded ID range job", async () => {

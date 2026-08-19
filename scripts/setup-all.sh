@@ -26,10 +26,12 @@ cp env.otw-private.example .env.otw-private.example
 
 if [ ! -f .env.production ]; then
   DB_ROOT="$(openssl rand -hex 24)"; DB_PASS="$(openssl rand -hex 24)"; API_TOKEN_VALUE="$(openssl rand -hex 32)"
+  APP_COMMIT_VALUE="$(git rev-parse --short HEAD 2>/dev/null || echo development)"
   sed \
     -e "s/change-me-root-password/$DB_ROOT/g" \
     -e "s/change-me-url-safe-password/$DB_PASS/g" \
     -e "s/change-me-to-at-least-32-random-characters/$API_TOKEN_VALUE/g" \
+    -e "s/^APP_VERSION=.*/APP_VERSION=$APP_COMMIT_VALUE/" \
     -e "s/^APP_UID=.*/APP_UID=$(id -u)/" \
     -e "s/^APP_GID=.*/APP_GID=$(id -g)/" \
     env.production.example > .env.production

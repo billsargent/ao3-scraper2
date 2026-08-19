@@ -17,7 +17,7 @@ CREATE DATABASE otwarchive_development CHARACTER SET utf8mb4 COLLATE utf8mb4_uni
 SQL
 gunzip -c "$BACKUP/otw.sql.gz" | "${COMPOSE[@]}" exec -T db mariadb -uroot -pchange_me otwarchive_development
 tar -C "$OTW_DIR" -xzf "$BACKUP/files.tar.gz"
-"${COMPOSE[@]}" run --rm --no-deps web bundle exec rake db:migrate
+"${COMPOSE[@]}" run --rm -T --no-deps web bundle exec rake db:migrate
 "${COMPOSE[@]}" up -d --no-deps web
 [ "${OTW_ENABLE_RESQUE:-false}" = true ] && "${COMPOSE[@]}" up -d resque || true
 echo "Private OTW restore completed from $BACKUP"

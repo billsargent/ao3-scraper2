@@ -6,6 +6,8 @@ x-node-service: &node-service
     context: .
     dockerfile: docker/Dockerfile
     target: app
+    args:
+      APP_COMMIT: ${APP_VERSION:-development}
   restart: unless-stopped
   init: true
   user: "${APP_UID:-1000}:${APP_GID:-1000}"
@@ -15,6 +17,7 @@ x-node-service: &node-service
   environment: &node-environment
     NODE_ENV: production
     TZ: ${TZ:-UTC}
+    APP_COMMIT: ${APP_VERSION:-development}
     COLLECTOR_DATABASE_URL: ${COLLECTOR_DATABASE_URL:?Set COLLECTOR_DATABASE_URL}
   depends_on:
     collector-db:
@@ -102,6 +105,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: web
+      args:
+        APP_COMMIT: ${APP_VERSION:-development}
     restart: unless-stopped
     depends_on:
       api:
