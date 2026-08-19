@@ -7,6 +7,7 @@
   "dependencies": {
     "@ao3-offsite/collector": "0.1.0",
     "@ao3-offsite/database": "0.1.0",
+    "@fastify/static": "^8.0.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.6.1",
     "zod": "^3.24.2"

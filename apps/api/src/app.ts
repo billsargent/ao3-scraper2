@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
+import { join } from "node:path";
+import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
 import { STANDARD_CHROME_USER_AGENT } from "@ao3-offsite/database";
@@ -31,7 +33,10 @@ const IdRangeBody = z.object({
   end: z.number().int().positive(),
   batchSize: z.number().int().min(1).max(1000).default(250),
 }).refine((body) => body.end >= body.start, { path: ["end"], message: "end must be >= start" })
-  .refine((body) => body.end - body.start + 1 <= 10_000_000, { path: ["end"], message: "A single planning request is limited to 10,000,000 IDs" });
+  .refine((body) => body.end - body.start + 1 <= 10_000_000, {
+    path: ["end"],
+    message: "A single planning request covers at most 10,000,000 IDs; use a later starting ID for recent works or create multiple jobs.",
+  });
 const SourcePolicy = z.object({
   userAgent: z.string().min(10).max(1000).default(STANDARD_CHROME_USER_AGENT),
   includeAdult: z.boolean().default(true),
@@ -55,12 +60,12 @@ const SourceCreateBody = z.object({
 }).and(SourcePolicy);
 const SourceBody = SourcePolicy.and(z.object({ paused: z.boolean() }));
 
-export interface ApiSecurityOptions { apiToken?: string; logger?: boolean; commit?: string }
+export interface ApiSecurityOptions { apiToken?: string; logger?: boolean; commit?: string; webRoot?: string }
 
 export function buildApp(services: ApiServices, security: ApiSecurityOptions = {}): FastifyInstance {
   const app = Fastify({ logger: security.logger ?? false });
   app.addHook("onRequest", async (request, reply) => {
-    if (!security.apiToken || request.url === "/api/health/live") return;
+    if (!security.apiToken || request.url === "/api/health/live" || request.url === "/healthz") return;
     const authorization = request.headers.authorization;
     const supplied = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!safeTokenEqual(supplied, security.apiToken)) {
@@ -83,6 +88,32 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
       message: error instanceof Error && error.message ? error.message : "The server could not complete the request.",
       requestId: request.id,
     });
+  });
+
+  // Serve the built React UI in the single-container layout: static files at /
+  // (served by the API itself instead of a separate Nginx container), /healthz
+  // for the container healthcheck, SPA fallback to index.html, and the same
+  // security headers the removed Nginx container used to set.
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    return payload;
+  });
+  if (security.webRoot && existsSync(security.webRoot)) {
+    void app.register(fastifyStatic, { root: security.webRoot, prefix: "/", wildcard: false });
+  }
+  app.get("/healthz", async () => ({ ok: true }));
+  app.setNotFoundHandler(async (request, reply) => {
+    if (request.method === "GET" && !request.url.startsWith("/api") && !request.url.startsWith("/healthz")) {
+      const indexPath = security.webRoot ? join(security.webRoot, "index.html") : null;
+      if (indexPath && existsSync(indexPath)) {
+        reply.type("text/html; charset=utf-8");
+        return reply.send(createReadStream(indexPath));
+      }
+    }
+    return reply.code(404).send({ error: "not_found", requestId: request.id });
   });
 
   const commit = security.commit ?? "development";

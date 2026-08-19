@@ -83,6 +83,20 @@ describe("Fastify control API", () => {
     expect(huge.statusCode).toBe(400);
   });
 
+  it("accepts AO3-scale work IDs and explains the range-size limit", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const high = await app.inject({
+      method: "POST", url: "/api/jobs/id-range",
+      payload: { sourceId: 1, start: 90_800_000, end: 90_919_366 },
+    });
+    expect(high.statusCode).toBe(201);
+    expect(mock.createIdRangeJob).toHaveBeenCalledWith(1, { start: 90_800_000, end: 90_919_366, batchSize: 250 });
+    const oversized = await app.inject({ method: "POST", url: "/api/jobs/id-range", payload: { sourceId: 1, start: 1, end: 10_000_001 } });
+    expect(oversized.statusCode).toBe(400);
+    expect(oversized.json()).toMatchObject({ error: "validation_error" });
+    expect(JSON.stringify(oversized.json())).toContain("10,000,000 IDs");
+  });
+
   it("paginates and searches the library and exposes chapter routes", async () => {
     const mock = services(); const app = buildApp(mock); apps.push(app);
     const response = await app.inject({ method: "GET", url: "/api/works?limit=10&offset=20&q=Potter" });

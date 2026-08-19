@@ -3,8 +3,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/docker.sh"
 [ "${CONFIRM_RESET:-}" = "ERASE_ALL" ] || {
-  echo "This deletes Archive Relay and OTW containers, database volumes, blobs, packages, and OTW local storage." >&2
-  echo "Run: CONFIRM_RESET=ERASE_ALL npm run services:reset" >&2
+  echo "This deletes Archive Relay (and any OTW) containers, database volumes, blobs, and packages." >&2
+  echo "Run: CONFIRM_RESET=ERASE_ALL npm run reset" >&2
   exit 1
 }
 
@@ -36,4 +36,4 @@ if [ "${ERASE_BACKUPS:-no}" = yes ]; then remove_path "$ROOT/backups"; fi
 if [ "${ERASE_CONFIG:-no}" = yes ]; then rm -f "$ROOT/.env" "$ROOT/.env.production" "$ROOT/.env.otw-private"; fi
 
 echo "Reset complete. Docker images and source code were preserved."
-echo "Rebuild/start with: npm run setup:all -- --start"
+echo "Rebuild/start with: npm run setup -- --start"

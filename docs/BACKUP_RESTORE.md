@@ -1,18 +1,14 @@
 # Backup and restore
 
 > **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
->
-> ```bash
-> cd /path/to/ao3-offsite-pipeline
-> ```
 
-## Create a consistent backup
+## Create a backup
 
 ```bash
-./scripts/backup-production.sh
+npm run backup
 ```
 
-The script briefly stops API/web/workers, keeps MariaDB running, then creates:
+This dumps MariaDB (a consistent `--single-transaction` snapshot) and archives blobs/exports into:
 
 ```text
 backups/<UTC timestamp>/
@@ -22,21 +18,19 @@ backups/<UTC timestamp>/
 └── checksums.sha256
 ```
 
-Application services restart automatically, including after most failures.
-
-Optional configuration in `.env.production`:
+Optional `.env.production` settings:
 
 ```dotenv
 BACKUP_DIR=./backups
 BACKUP_RETENTION_DAYS=30
 ```
 
-Copy completed backup directories to at least one different physical location. The production environment file is deliberately excluded; store its credentials separately in encrypted form.
+Copy completed backup directories to at least one other physical location. The production environment file is deliberately excluded; store its credentials separately in encrypted form.
 
 ## Verify
 
 ```bash
-cd backups/20260818T120000Z
+cd backups/<timestamp>
 sha256sum -c checksums.sha256
 gzip -t collector.sql.gz
 tar -tzf data.tar.gz >/dev/null
@@ -48,17 +42,17 @@ Restoration is destructive:
 
 ```bash
 CONFIRM_RESTORE=yes \
-  ./scripts/restore-production.sh backups/20260818T120000Z
+  ./scripts/restore-production.sh backups/<timestamp>
 ```
 
 The script:
 
 1. Verifies backup checksums.
-2. Stops application services.
+2. Ensures the collector container is running.
 3. Drops and recreates the collector database.
 4. Imports the logical SQL dump.
 5. Replaces raw blob and export data.
-6. Starts services and applies any newer migrations.
+6. Restarts the collector so the API re-runs migrations and workers reconnect.
 
 ## Restore drill
 
@@ -76,4 +70,4 @@ A backup is not considered proven until a restore drill succeeds.
 
 ## OTW Archive
 
-This backup covers the collector only. Back up the OTW deployment separately: its MariaDB database, uploads/storage, configuration, and importer provenance tables. Elasticsearch, Redis, and caches should be rebuilt from authoritative data.
+This backup covers the collector only. The OTW side (if/when enabled) is backed up separately: its MariaDB database, uploads/storage, configuration, and importer provenance tables. Elasticsearch, Redis, and caches are rebuilt from authoritative data. See [OTW Archive](OTW_ARCHIVE.md).

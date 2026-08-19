@@ -1,110 +1,103 @@
-# Production deployment
+# Deployment
 
 > **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
->
-> ```bash
-> cd /path/to/ao3-offsite-pipeline
-> ```
 
-This profile runs the collector control plane. OTW Archive remains a separate deployment and receives verified transfer packages.
+The production runtime is one container (`collector`) defined by `compose.production.yml`. It runs MariaDB, the Fastify API (UI + `/api` + `/healthz`), and the three workers under `supervisord` in a single process tree.
 
 ## Requirements
 
-- Linux host or VM with Docker Engine and Compose v2
+- Linux host/VM with Docker Engine + Compose v2 (or Docker Desktop)
 - 2 CPU cores minimum; 4 recommended
-- 4 GB RAM minimum for collector services
-- Storage sized for MariaDB plus raw HTML and export packages
-- TLS reverse proxy or private VPN if accessed beyond localhost
+- 4 GB RAM minimum
+- Storage for MariaDB plus raw HTML and export packages
+- TLS reverse proxy or private network if accessed beyond localhost
 
-## Configure
+## Configuration
 
 ```bash
 cp env.production.example .env.production
-openssl rand -hex 32
 ```
 
-Edit every `change-me` value. `COLLECTOR_DATABASE_PASSWORD` must be URL-safe because it appears in `COLLECTOR_DATABASE_URL`. Set `APP_UID` and `APP_GID` to the host account that owns `DATA_DIR` (usually `id -u` and `id -g`; both are commonly 1000). Keep `.env.production` outside source control and back it up separately in a password manager or encrypted secrets store.
+Edit every `change-me` value. `COLLECTOR_DATABASE_PASSWORD` must be URL-safe because it appears in `COLLECTOR_DATABASE_URL`. Keep `.env.production` out of source control and back it up separately in a password manager or encrypted store.
 
-The AO3 source is created paused. Review Browser ID, delay, request/byte budgets, operating window, and job range before enabling it.
+| Variable | Purpose |
+|---|---|
+| `MARIADB_ROOT_PASSWORD` | Root password for the in-container MariaDB |
+| `COLLECTOR_DATABASE_NAME` / `_USER` / `_PASSWORD` | Collector database identity |
+| `COLLECTOR_DATABASE_URL` | Connection URL (points at `127.0.0.1:3306` inside the container) |
+| `API_TOKEN` | Bearer token for the API (also the UI unlock code) |
+| `WEB_PORT` | Host port mapped to the container (default `8080`) |
+| `APP_VERSION` | Image tag / UI build label |
+| `DATA_DIR` | Host directory for blobs and exports |
+| `BACKUP_DIR` | Host directory for backups |
+| `TZ` | Time zone (default `UTC`) |
 
-## Start
+MariaDB is **not** exposed to the host; it listens on `127.0.0.1` inside the container.
 
-Collector only:
+## Start / stop
 
 ```bash
-./scripts/production-up.sh
+npm start          # build (if needed) + start
+npm stop
+npm run restart
+npm run status
+npm run logs
 ```
 
-Collector and private OTW together:
+The scripts are thin wrappers over `scripts/production-up.sh`, `scripts/production-down.sh`, and `scripts/all-services.sh`. The API applies database migrations before accepting traffic.
 
-```bash
-bash scripts/all-services.sh start all
-```
-
-Stop or inspect the complete stack:
-
-```bash
-bash scripts/all-services.sh status all
-bash scripts/all-services.sh stop all
-```
-
-Open `http://localhost:8080` by default. Enter `API_TOKEN` at the unlock screen.
-
-Services:
-
-- `collector-db` — MariaDB
-- `api` — Fastify, migrations, downloads, SSE
-- `collector-worker` — source fetch/parse/persist
-- `planner-worker` — durable range expansion
-- `export-worker` — verified package generation
-- `web` — Nginx and static Vite interface
-
-Every long-lived service uses `restart: unless-stopped`, bounded JSON logs, health checks where applicable, and one init process for signal handling. The API runs migrations before accepting traffic.
-
-## Inspect
+## Inspect inside the container
 
 ```bash
 docker compose --env-file .env.production -f compose.production.yml ps
 docker compose --env-file .env.production -f compose.production.yml logs -f --tail=200
-docker compose --env-file .env.production -f compose.production.yml logs -f collector-worker
+docker exec -it <container> supervisorctl status
 ```
 
-## Stop or update
+The container name is listed by `docker compose ps` (typically `archive-relay-collector-1`).
+
+## Update
+
+Take a backup first:
+
+```bash
+npm run backup
+npm stop
+```
 
 ### Git checkout
 
 ```bash
-npm run production:backup
-./scripts/production-down.sh
 git pull
-npm run production:up
+npm start
 ```
 
 ### Downloaded ZIP
 
-An in-place ZIP update is supported for routine collector updates:
+1. `npm run backup` and save `.env.production` separately.
+2. `npm stop`.
+3. Extract the new ZIP over the project root so `package.json` sits at the root (not in a nested directory).
+4. Keep the existing runtime `.env*` files; do not replace them with the examples.
+5. `npm start` and hard-refresh the UI (the sidebar shows UI/API build IDs; a ZIP without Git metadata shows a matching `zip-<content-hash>`).
 
-1. Run `npm run production:backup`.
-2. Save `.env.production` separately. Save `.env.otw-private` too if private OTW is installed.
-3. Run `npm run production:down`.
-4. Extract the new ZIP directly over the project root. Confirm that `package.json` is still at the root rather than in a nested second directory.
-5. Keep the existing runtime `.env*` files; do not replace them with `env*.example`.
-6. Run `npm run production:up`.
-7. Hard-refresh the UI and confirm that its UI/API build IDs match. A source archive without Git metadata displays a matching `zip-<content-hash>` build ID instead of a commit hash.
-
-The collector database Docker volume and `DATA_DIR` survive a source-code overwrite. Nevertheless, preserve an in-project `DATA_DIR` explicitly and never use `docker compose down -v`, which deletes MariaDB. ZIP extraction does not remove obsolete files, so use a clean side-by-side extraction for major upgrades or whenever the release notes call for one.
-
-`production:up` rebuilds and migrates the **collector only**. To apply importer/private-OTW changes from the same ZIP, also run:
-
-```bash
-npm run otw:up
-```
-
-This reinstalls the overlay into the separately configured `OTW_DIR`, runs OTW migrations, and recreates the OTW web service without replacing its database volume.
+The database volume and `DATA_DIR` survive source overwrites. Do not use `docker compose down -v` (it deletes MariaDB) unless you intend a reset.
 
 ## Network security
 
-Only the Nginx web port is published. MariaDB and Fastify remain on the internal Compose network. For remote access, place port 8080 behind HTTPS and additional network access control. The bearer token protects the API but is not a substitute for TLS.
+Only `WEB_PORT` (default `8080`) is published. Put it behind HTTPS/VPN for remote access. The bearer token protects the API but is not a substitute for TLS.
+
+## CI and signed releases
+
+`.github/workflows/ci.yml` runs the TypeScript build plus unit/API tests, the Vite build, Playwright Chromium tests, an npm audit, MariaDB migrations plus the integration suite, and the single container build.
+
+Push a semantic tag to build and publish a multi-arch image with BuildKit provenance, an SBOM, and a keyless Sigstore/Cosign signature:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Verify a published image with `cosign verify` against the tag's OIDC identity. Production Compose builds locally by default; to deploy published images, override `image:` in a small Compose override pinned to immutable digests.
 
 ## Data paths
 
@@ -112,4 +105,4 @@ Only the Nginx web port is published. MariaDB and Fastify remain on the internal
 - Raw responses: `${DATA_DIR}/blobs`
 - Transfer packages: `${DATA_DIR}/exports`
 
-Back up both MariaDB and `DATA_DIR`; neither is sufficient alone.
+Back up both MariaDB and `DATA_DIR`; neither is sufficient alone. See [Backup and restore](BACKUP_RESTORE.md).

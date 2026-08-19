@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-START=false; RUN_TESTS=true; BUILD_OTW=true
+START=false; RUN_TESTS=true; WITH_OTW=false
 for arg in "$@"; do
   case "$arg" in
     --start) START=true ;;
     --skip-tests) RUN_TESTS=false ;;
-    --skip-otw-build) BUILD_OTW=false ;;
+    --with-otw) WITH_OTW=true ;;
     -h|--help)
-      echo "Usage: scripts/setup-all.sh [--start] [--skip-tests] [--skip-otw-build]"; exit 0 ;;
+      echo "Usage: scripts/setup-all.sh [--start] [--skip-tests] [--with-otw]"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -24,7 +24,10 @@ cp env.example .env.example
 cp env.production.example .env.production.example
 cp env.otw-private.example .env.otw-private.example
 
-if [ ! -f .env.production ]; then
+if [ ! -f .env.production ] || grep -qE 'collector-db|^APP_UID=|^MARIADB_IMAGE=' .env.production 2>/dev/null; then
+  if [ -f .env.production ]; then
+    echo "Regenerating .env.production for the single-container layout (old values detected)."
+  fi
   DB_ROOT="$(openssl rand -hex 24)"; DB_PASS="$(openssl rand -hex 24)"; API_TOKEN_VALUE="$(openssl rand -hex 32)"
   APP_COMMIT_VALUE="$(git rev-parse --short HEAD 2>/dev/null || echo development)"
   sed \
@@ -32,27 +35,28 @@ if [ ! -f .env.production ]; then
     -e "s/change-me-url-safe-password/$DB_PASS/g" \
     -e "s/change-me-to-at-least-32-random-characters/$API_TOKEN_VALUE/g" \
     -e "s/^APP_VERSION=.*/APP_VERSION=$APP_COMMIT_VALUE/" \
-    -e "s/^APP_UID=.*/APP_UID=$(id -u)/" \
-    -e "s/^APP_GID=.*/APP_GID=$(id -g)/" \
     env.production.example > .env.production
   echo "Created .env.production with generated secrets."
 else
   API_TOKEN_VALUE="$(grep '^API_TOKEN=' .env.production | cut -d= -f2-)"
 fi
 
-if [ ! -f .env.otw-private ]; then
-  OTW_PASSWORD="$(openssl rand -hex 16)"
-  sed \
-    -e "s/change-me-to-a-strong-password/$OTW_PASSWORD/g" \
-    -e "s|^COLLECTOR_API_TOKEN=.*|COLLECTOR_API_TOKEN=$API_TOKEN_VALUE|" \
-    env.otw-private.example > .env.otw-private
-  echo "Created .env.otw-private. Archivist credentials are stored there."
-elif grep -q '^COLLECTOR_API_TOKEN=$' .env.otw-private; then
-  sed -i "s|^COLLECTOR_API_TOKEN=$|COLLECTOR_API_TOKEN=$API_TOKEN_VALUE|" .env.otw-private
+# The private OTW Archive is an optional, deferred add-on. Enable its setup with
+# --with-otw once you want the OTW importer side of the pipeline.
+if $WITH_OTW; then
+  if [ ! -f .env.otw-private ]; then
+    OTW_PASSWORD="$(openssl rand -hex 16)"
+    sed \
+      -e "s/change-me-to-a-strong-password/$OTW_PASSWORD/g" \
+      -e "s|^COLLECTOR_API_TOKEN=.*|COLLECTOR_API_TOKEN=$API_TOKEN_VALUE|" \
+      env.otw-private.example > .env.otw-private
+    echo "Created .env.otw-private. Archivist credentials are stored there."
+  elif grep -q '^COLLECTOR_API_TOKEN=$' .env.otw-private; then
+    sed -i "s|^COLLECTOR_API_TOKEN=$|COLLECTOR_API_TOKEN=$API_TOKEN_VALUE|" .env.otw-private
+  fi
+  OTW_DIR_VALUE="$(set -a; source .env.otw-private; set +a; cd "${OTW_DIR:-$ROOT/../otwarchive}" && pwd)"
+  [ -d "$OTW_DIR_VALUE" ] || { echo "OTW checkout not found: $OTW_DIR_VALUE" >&2; exit 1; }
 fi
-
-OTW_DIR_VALUE="$(set -a; source .env.otw-private; set +a; cd "${OTW_DIR:-$ROOT/../otwarchive}" && pwd)"
-[ -d "$OTW_DIR_VALUE" ] || { echo "OTW checkout not found: $OTW_DIR_VALUE" >&2; exit 1; }
 
 npm ci
 npm run build
@@ -62,8 +66,8 @@ if $RUN_TESTS; then
 fi
 
 "${DOCKER[@]}" compose --env-file .env.production -f compose.production.yml build
-bash scripts/install-into-otw.sh "$OTW_DIR_VALUE"
-if $BUILD_OTW; then
+if $WITH_OTW; then
+  bash scripts/install-into-otw.sh "$OTW_DIR_VALUE"
   "${DOCKER[@]}" compose --env-file .env.otw-private \
     -f "$OTW_DIR_VALUE/docker-compose.yml" -f "$OTW_DIR_VALUE/docker-compose.private.yml" \
     --profile dev build web resque
@@ -73,6 +77,6 @@ if $START; then
   bash scripts/all-services.sh start all
 else
   echo
-  echo "Setup and builds completed. Start everything with:"
-  echo "  bash scripts/all-services.sh start all"
+  echo "Setup and builds completed. Start with:"
+  echo "  bash scripts/all-services.sh start all   (npm start)"
 fi

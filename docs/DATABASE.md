@@ -1,16 +1,12 @@
-# MariaDB/MySQL collector database
+# Collector database
 
 > **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
->
-> ```bash
-> cd /path/to/ao3-offsite-pipeline
-> ```
 
-The collector now targets MySQL-compatible databases through `mysql2` and Drizzle. MariaDB is the development default because OTW Archive already uses the MySQL protocol and MariaDB in its own deployment.
+The collector uses MariaDB 10.11 via `mysql2` and Drizzle. In production it runs **inside** the collector container on `127.0.0.1:3306` and is not exposed to the host. In development it runs as the `collector-db` service of `docker-compose.yml`, mapped to host port `3307`.
 
 ## Isolation
 
-The collector must not write to OTW Archive's database. Use separate databases and users even when both databases share one server:
+The collector must never write to OTW Archive's database. Keep separate databases and users even if both databases eventually share one MariaDB server:
 
 ```text
 collector user -> ao3_collector only
@@ -19,27 +15,27 @@ otw user       -> otw_archive only
 
 Transfer packages and the Rails importer are the boundary between the applications.
 
-## Local database
+## Local development database
 
 ```bash
-cp env.example .env
-# Export COLLECTOR_DATABASE_URL from .env in your shell or process manager.
 docker compose up -d collector-db
-npm run db:migrate -w @ao3-offsite/database
+export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
+npm run db:migrate
 ```
-
-The generated migration has been executed successfully against the provided MariaDB 10.11 container. Integration tests also verified idempotent durable-task creation and transactional work/chapter/tag/series reconciliation.
 
 ## Schema groups
 
-- Control plane: `sources`, `collection_jobs`, `collection_tasks`
+- Control plane: `sources`, `collection_jobs`, `collection_tasks`, `export_runs`
 - Normalized archive: `works`, `chapters`, `authors`, `work_authors`, `tags`, `work_tags`, `series`, `series_works`
 - History/raw capture: `observations`, `fetch_snapshots`
 
-Large HTML fields are `LONGTEXT`. All identifiers use unsigned `BIGINT`. Source identities have unique compound indexes. MariaDB receives UTF-8 data as `utf8mb4`.
+Large HTML fields are `LONGTEXT`. Identifiers use unsigned `BIGINT`; source identities have unique compound indexes. Data is stored as `utf8mb4`.
 
 ## Migration policy
 
-The initial SQL migration is generated under `packages/database/drizzle`. Once a migration has been used on a shared database, do not rewrite it; generate a new migration.
+Migrations are generated under `packages/database/drizzle`. Once a migration has been used on a shared database, do not rewrite it — generate a new one. In production the API applies migrations automatically on startup.
 
-For production, pin and test one MariaDB/MySQL version. The development default is MariaDB 10.11 LTS rather than the old MariaDB 10.5 image in the reference OTW checkout. OTW's complete test suite must pass against the selected shared-server version before consolidating both databases onto one server.
+## Next
+
+- [Operations](OPERATIONS.md)
+- [Backup and restore](BACKUP_RESTORE.md)

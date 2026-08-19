@@ -63,15 +63,6 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
-          target: app
           push: false
-          cache-from: type=gha,scope=app
-          cache-to: type=gha,mode=max,scope=app
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          target: web
-          push: false
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
+          cache-from: type=gha,scope=single
+          cache-to: type=gha,mode=max,scope=single

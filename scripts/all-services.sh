@@ -52,17 +52,22 @@ otw() {
 run_scope() {
   local command="$1"
   if [[ "$SCOPE" == all || "$SCOPE" == collector ]]; then collector "$command"; fi
-  if [[ "$SCOPE" == all || "$SCOPE" == otw ]]; then otw "$command"; fi
+  if [[ "$SCOPE" == otw ]]; then otw "$command"; fi
 }
 
 case "$ACTION" in
   start)
     [ "$SCOPE" == otw ] || [ -f "$PROD_ENV" ] || { echo "Missing $PROD_ENV" >&2; exit 1; }
     run_scope start
-    collector_port="$(set -a; source "$PROD_ENV" 2>/dev/null || true; echo "${WEB_PORT:-8080}")"
-    otw_url="$(set -a; source "$OTW_ENV" 2>/dev/null || true; echo "${OTW_APP_URL:-http://localhost:3000}")"
-    echo
-    echo "Services started. Collector: http://localhost:${collector_port}  Private OTW: ${otw_url}"
+    if [ "$SCOPE" == otw ]; then
+      otw_url="$(set -a; source "$OTW_ENV" 2>/dev/null || true; echo "${OTW_APP_URL:-http://localhost:3000}")"
+      echo
+      echo "OTW Archive started: ${otw_url}"
+    else
+      collector_port="$(set -a; source "$PROD_ENV" 2>/dev/null || true; echo "${WEB_PORT:-8080}")"
+      echo
+      echo "Archive Relay started. Collector: http://localhost:${collector_port}"
+    fi
     ;;
   stop) run_scope stop ;;
   restart) run_scope stop; run_scope start ;;

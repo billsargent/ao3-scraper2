@@ -1,290 +1,108 @@
-# Collector API and worker operations
+# Operations
 
 > **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
->
-> ```bash
-> cd /path/to/ao3-offsite-pipeline
-> ```
 
-The control API and worker are now separate processes. MariaDB is authoritative: restarting either process does not lose jobs or task progress.
+The collector is one Docker container. MariaDB is authoritative: restarting the container (or any supervised process inside it) does not lose jobs or progress.
 
-## Start local dependencies
+## Ports
 
-```bash
-cp env.example .env
-docker compose up -d --wait collector-db
-set -a
-source .env
-set +a
-npm install
-npm run db:migrate
-```
+| Port | Mode | Service | Open it? |
+|---:|---|---|---|
+| `8080` | Production | Collector UI + `/api` (same origin) | Yes |
+| `5173` | Development | Vite UI | Yes |
+| `3001` | Development | Fastify API | Usually no; the UI calls it |
+| `3307` | Development | Collector MariaDB host mapping | No |
 
-Browser identity and source policy are stored in MariaDB and edited through Source Settings. A new source defaults to a standard Chrome User-Agent, accepts adult-content interstitials, and starts paused. You can customize the Browser ID/User-Agent and append a project contact identifier before routine collection.
-
-## Load an existing offline package (optional)
-
-For UI development or recovery testing, load a verified package into the collector without contacting the source:
+Health checks:
 
 ```bash
-npm run dataset:load -- datasets/harry-potter-page-1/package
+curl http://localhost:8080/healthz
+curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8080/api/health/ready
 ```
-
-The loader creates the package source paused when needed and transactionally upserts each work. The private Harry Potter validation package is ignored by Git but remains in the workspace where it was captured.
-
-## Start the API
-
-For localhost-only development, authentication is optional. For any shared/private-network access, generate a token first:
-
-```bash
-openssl rand -hex 32
-```
-
-Set the result as `API_TOKEN` in your environment, then start:
-
-```bash
-npm run api:start
-```
-
-The default API address is `http://127.0.0.1:3001`. When `API_TOKEN` is set, every `/api` route except liveness requires `Authorization: Bearer <token>`. The Vite interface displays an unlock screen and stores the token in that browser's local storage.
-
-Check health. Add `-H "Authorization: Bearer $API_TOKEN"` to protected curl commands when authentication is enabled:
-
-```bash
-curl http://127.0.0.1:3001/api/health/live
-curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3001/api/health/ready
-```
-
-## Start the Vite operator interface
-
-In another terminal:
-
-```bash
-npm run web:dev
-```
-
-Open `http://localhost:5173`. Vite proxies browser requests under `/api` to `http://127.0.0.1:3001`, so the browser never needs to call a separate localhost service directly. The interface currently provides:
-
-- Overview metrics and safety state
-- Durable ID-range job creation
-- Job progress and pause/resume/cancel controls
-- Failure review with recorded code/message and job-level terminal-failure retry
-- Server-paginated collected-work list and title/source-ID search
-- Offline work/chapter reader using plain text extracted from stored HTML
-- Paused-by-default source creation
-- Browser ID/User-Agent, adult-content, delay, request/byte budget, timeout, response-size, retry, UTC-window, and emergency-pause settings
-
-The API and UI are unauthenticated in this milestone. Keep both bound to localhost or a trusted private network.
 
 ## Create the AO3 source
 
-Sources are created paused as a safety measure:
+Sources are created **paused** as a safety measure. Open **Source settings** in the UI, or:
 
 ```bash
-curl -X POST http://127.0.0.1:3001/api/sources \
-  -H 'content-type: application/json' \
-  -d '{
-    "key": "ao3",
-    "origin": "https://archiveofourown.org",
-    "minimumDelayMs": 10000,
-    "dailyRequestBudget": 250
-  }'
+curl -X POST http://localhost:8080/api/sources \
+  -H "Authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
+  -d '{"key":"ao3","origin":"https://archiveofourown.org"}'
 ```
 
-The response contains `sourceId`. The Source Settings UI provides granular controls for:
+Source policy controls (all enforced transactionally across every worker):
 
 - Browser ID / User-Agent
 - Adult-content interstitial acceptance
 - Minimum delay between requests
-- UTC daily request count
-- UTC daily response-byte budget
-- Per-response size limit
-- Request timeout
+- UTC daily request count and response-byte budget
+- Per-response size limit and request timeout
 - Maximum failure attempts
-- Optional UTC operating window, including overnight windows
-- Immediate source pause
+- Optional UTC operating window
+- Immediate pause
 
-All pacing, budget, and operating-window checks are transactionally shared by every worker. List sources:
+Defaults are conservative on purpose: 10-second minimum delay, 250 requests/day, one request at a time, paused by default. **These protect AO3, not the hardware.** A `0` value means unlimited for delay, budget, size, timeout, or retries.
 
-```bash
-curl http://127.0.0.1:3001/api/sources
-```
-
-## Create a job
-
-Creating a job inserts durable tasks but a paused source prevents workers from claiming them:
+## Create and control a collection job
 
 ```bash
-curl -X POST http://127.0.0.1:3001/api/jobs/id-range \
-  -H 'content-type: application/json' \
-  -d '{
-    "sourceId": 1,
-    "start": 100,
-    "end": 110,
-    "batchSize": 100
-  }'
-```
-
-The API stores the job immediately without generating every task in the HTTP request. Start the durable planner in another terminal:
-
-```bash
-npm run planner-worker:start
-```
-
-The planner streams bounded batches into MariaDB, checkpoints its next ID after every batch, and resumes idempotently after a crash. One request is capped at 10,000,000 IDs as a configuration guard; practical jobs should begin much smaller.
-
-Inspect jobs:
-
-```bash
-curl http://127.0.0.1:3001/api/jobs
-curl http://127.0.0.1:3001/api/jobs/1
-```
-
-## Start the worker
-
-Starting the worker does not override a paused source:
-
-```bash
-npm run worker:start
-```
-
-The browser opens an authenticated Server-Sent Events stream at `/api/events`. Job snapshots are pushed every two seconds, with 15-second transport heartbeats and automatic browser reconnection. Thirty-second polling remains as a fallback.
-
-The worker:
-
-1. Claims one MariaDB task with a unique lease token.
-2. Reserves a database-backed source request slot.
-3. Enforces the source delay and UTC daily request budget across all workers.
-4. Heartbeats while a request is running.
-5. Stores raw HTML before parsing.
-6. Persists normalized records transactionally.
-7. Completes, retries, or terminally fails the task.
-
-Retryable failures use bounded exponential backoff with jitter. The default limit is six processing attempts. A crashed worker's expired lease is recovered when another worker starts.
-
-## Start the export worker
-
-Transfer-package requests use a separate durable worker so large exports do not block the API or source collector:
-
-```bash
-npm run export-worker:start
-```
-
-Queue and inspect exports from the **Transfer packages** UI, or use:
-
-```bash
-curl -X POST http://127.0.0.1:3001/api/exports \
-  -H "Authorization: Bearer $API_TOKEN" \
-  -H 'content-type: application/json' \
-  -d '{"sourceId": 1, "maximumWorks": 500}'
-
-curl -H "Authorization: Bearer $API_TOKEN" \
-  http://127.0.0.1:3001/api/exports
-```
-
-The first non-empty export is a snapshot. Later exports contain only works whose content hash changed and link to the previous completed package. Requests with no changed works finish as `empty`. Package files are written under `EXPORT_DIRECTORY/<package-id>`, verified, and compressed to `<package-id>.tar.gz` before works are marked exported.
-
-The Transfer Packages inspector displays manifest counts, verification time, archive size, and SHA-256. It can download the authenticated archive and track `not imported`, `importing`, `imported`, or `failed` OTW status. API equivalents are:
-
-```bash
-curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3001/api/exports/1/manifest
-curl -OJ -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3001/api/exports/1/download
-curl -X PATCH http://127.0.0.1:3001/api/exports/1/import-status \
+curl -X POST http://localhost:8080/api/jobs/id-range \
   -H "Authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
-  -d '{"status":"imported","otwImportRunId":"otw-run-123"}'
+  -d '{"sourceId":1,"start":90800000,"end":90919366,"batchSize":250}'
 ```
 
-The download response includes `X-Content-SHA256` and `Content-Length` headers.
+- Work IDs are arbitrary positive integers; AO3 is around 91M and rising, and any value up to JavaScript's safe-integer limit is supported.
+- One job covers at most **10,000,000 IDs**. That is a range-size guard, not a ceiling on the IDs themselves — to cover the full current range, start closer to the top or create several jobs.
+- The planner worker expands the range durably, the collector worker fetches and parses, and the export worker builds packages.
 
-The OTW importer can update status automatically. Configure its environment before running the rake import:
+Job controls:
 
 ```bash
-export COLLECTOR_CALLBACK_URL='http://collector-api:3001/'
-export COLLECTOR_API_TOKEN="$API_TOKEN"
+curl -X POST http://localhost:8080/api/jobs/1/pause
+curl -X POST http://localhost:8080/api/jobs/1/resume
+curl -X POST http://localhost:8080/api/jobs/1/cancel
+curl -X POST http://localhost:8080/api/jobs/1/retry-failures
 ```
 
-It reports `importing`, then `imported` with its OTW import-run ID, or `failed` with an error. Callback failures are logged but do not roll back an otherwise successful OTW import.
+The worker claims tasks under short leases, reserves database-backed source slots, respects the source delay and daily budgets, heartbeats, stores raw HTML before parsing, persists records transactionally, and completes, retries, or terminally fails each task. Retries use bounded exponential backoff with jitter (default six attempts). Expired leases from a crashed worker are reclaimed automatically.
 
-Multiple export workers are supported. MariaDB locks one active export per source, while allowing different sources to export concurrently. Sequence numbers and parent package IDs are assigned in the same transaction; recovered leases reuse the existing package ID and sequence.
+## Transfer packages
 
-## Unpause source collection
-
-Do this only after confirming the job range, User-Agent contact, delay, and budget:
+Queue an export from the **Transfer packages** UI, or:
 
 ```bash
-curl -X PUT http://127.0.0.1:3001/api/sources/1 \
-  -H 'content-type: application/json' \
-  -d '{
-    "minimumDelayMs": 10000,
-    "dailyRequestBudget": 250,
-    "paused": false
-  }'
+curl -X POST http://localhost:8080/api/exports \
+  -H "Authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
+  -d '{"sourceId":1,"maximumWorks":500}'
 ```
 
-Pause immediately without deleting the job:
+The first non-empty export is a snapshot; later exports contain only changed works and link to the previous package. Requests with no changed works finish as `empty`. Packages are written, verified, and compressed to `.tar.gz` before works are marked exported.
+
+Inspect and download:
 
 ```bash
-curl -X PUT http://127.0.0.1:3001/api/sources/1 \
-  -H 'content-type: application/json' \
-  -d '{
-    "minimumDelayMs": 10000,
-    "dailyRequestBudget": 250,
-    "paused": true
-  }'
+curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8080/api/exports/1/manifest
+curl -OJ -H "Authorization: Bearer $API_TOKEN" http://localhost:8080/api/exports/1/download
 ```
 
-## Debug failed UI actions
+## Monitoring and troubleshooting
 
-Open **Debug log** in the collector sidebar. It keeps the latest 200 browser-to-API requests and shows:
+- `npm run status` — container health
+- `npm run logs` — container logs (MariaDB, API, and workers all write to the same stream)
+- `docker exec -it <container> supervisorctl status` — per-program status (`mariadb`, `api`, `collector-worker`, `planner-worker`, `export-worker`)
+- **Debug log** in the UI keeps the last 200 browser-to-API requests with status, duration, and request ID (bodies and tokens are never recorded)
 
-- HTTP method and path
-- Status code
-- Duration
-- API message
-- Validation field issues
-- Server request ID
-
-Tokens and request bodies are not recorded. Use **Download JSON** when asking for support; the request ID can be matched with the API container log.
-
-Server logs:
+## Full reset
 
 ```bash
-bash scripts/all-services.sh logs collector
+CONFIRM_RESET=ERASE_ALL npm run reset
 ```
 
-## Job controls
+Deletes containers, database volumes, blobs, and exports. Source code, backups, and `.env` files are preserved unless you also set `ERASE_BACKUPS=yes` or `ERASE_CONFIG=yes`.
 
-```bash
-curl -X POST http://127.0.0.1:3001/api/jobs/1/pause
-curl -X POST http://127.0.0.1:3001/api/jobs/1/resume
-curl -X POST http://127.0.0.1:3001/api/jobs/1/cancel
-```
+## Next
 
-Pausing a job prevents new task claims. A task already being processed is allowed to finish. Cancelling marks future queued/retryable tasks cancelled; it does not delete captured content.
-
-## Browse collector records
-
-```bash
-curl 'http://127.0.0.1:3001/api/works?limit=25&offset=0'
-curl http://127.0.0.1:3001/api/works/1
-```
-
-The detailed endpoint currently returns work and chapter metadata, not chapter body HTML. Full browsing will be implemented in the Vite UI with sanitized rendering.
-
-## Stop processes
-
-Use `Ctrl+C` for the API and worker. Both close their MariaDB pools. Worker leases expire and are recoverable if a process is forcibly terminated.
-
-Stop MariaDB while keeping its data volume:
-
-```bash
-docker compose down
-```
-
-## Current limitations
-
-- Authentication is a single operator bearer token, not multi-user accounts or role-based access.
-- Events currently carry job snapshots; per-task log events and historical replay are not implemented yet.
-- Large range discovery is asynchronous and capped at 10,000,000 IDs per job as a configuration guard.
-- Export creation is implemented as a library and integration-tested but is not exposed through an asynchronous API endpoint yet.
-- A real contact address is required to run the worker; it is intentionally not committed to the repository.
+- [Backup and restore](BACKUP_RESTORE.md)
+- [Deployment](DEPLOYMENT.md)
+- [Database](DATABASE.md)
+- [Testing](TESTING.md)

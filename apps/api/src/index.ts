@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { createDatabase } from "@ao3-offsite/database";
@@ -15,11 +16,15 @@ const configuration = z.object({
     .transform((value) => isAbsolute(value) ? value : resolve(projectRoot, value)),
 }).parse(process.env);
 const { db, pool } = createDatabase(configuration.COLLECTOR_DATABASE_URL);
+const webRoot = existsSync(join(projectRoot, "apps/web/dist")) ? join(projectRoot, "apps/web/dist") : undefined;
 const app = buildApp(
   new MariaDbApiServices(db, configuration.EXPORT_DIRECTORY),
-  configuration.API_TOKEN
-    ? { apiToken: configuration.API_TOKEN, logger: true, commit: process.env.APP_COMMIT ?? "development" }
-    : { logger: true, commit: process.env.APP_COMMIT ?? "development" },
+  {
+    logger: true,
+    commit: process.env.APP_COMMIT ?? "development",
+    ...(webRoot ? { webRoot } : {}),
+    ...(configuration.API_TOKEN ? { apiToken: configuration.API_TOKEN } : {}),
+  },
 );
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

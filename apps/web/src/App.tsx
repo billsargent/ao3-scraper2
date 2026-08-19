@@ -156,6 +156,7 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
     <p className="muted">Tasks are created durably. The source is currently <b>{source.paused ? "paused" : "enabled"}</b>, with a {source.minimumDelayMs / 1000}-second minimum delay.</p>
     <div className="form-grid"><label>Starting work ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label><label>Ending work ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label></div>
     <div className="estimate"><span>{formatNumber(count)} tasks</span><span>≈ {duration(count * source.minimumDelayMs)}</span></div>
+    {count > 10_000_000 && <p className="muted">A single job covers at most 10,000,000 IDs. High work IDs like AO3's current ~91M are supported — start closer to them (e.g. start near 90,800,000) or create multiple jobs.</p>}
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10_000_000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
   </form></div>;
