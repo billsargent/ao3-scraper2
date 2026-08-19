@@ -43,7 +43,13 @@ async function mockApi(page: Page, requireToken = false) {
     if (url.pathname.startsWith("/api/sources/") && request.method() === "PUT") return json({ updated: true });
     if (url.pathname === "/api/jobs/id-range" && request.method() === "POST") { jobCreated = true; return json({ jobId: 42 }, 201); }
     const control = url.pathname.match(/^\/api\/jobs\/42\/(pause|resume|cancel)$/)?.[1];
-    if (control) { jobStatus = control === "pause" ? "paused" : control === "resume" ? "queued" : "cancelled"; return json({ updated: true }); }
+    if (control) {
+      if (request.postData() === null && request.headers()["content-type"]?.includes("application/json")) {
+        return json({ error: "FST_ERR_CTP_EMPTY_JSON_BODY", message: "Body cannot be empty when content-type is set to 'application/json'" }, 400);
+      }
+      jobStatus = control === "pause" ? "paused" : control === "resume" ? "queued" : "cancelled";
+      return json({ updated: true });
+    }
     if (url.pathname === "/api/jobs") return json({ jobs: jobCreated ? [{ id: 42, sourceId: 1, type: "id_range", status: jobStatus, configuration: { start: 100, end: 105, batchSize: 250 }, planningStatus: "completed", planningCursor: 106, planningError: null, discoveredCount: 6, succeededCount: 0, failedCount: 0, skippedCount: 0, createdAt: "2026-08-17T12:00:00.000Z", startedAt: null, completedAt: null }] : [], limit: 100, offset: 0 });
     if (url.pathname === "/api/failures") return json({ failures: [], total: 0 });
     if (url.pathname === "/api/exports") return request.method() === "POST" ? json({ id: 1, packageId: exportRecord.packageId }, 202) : json({ exports: [exportRecord], total: 1 });

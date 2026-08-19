@@ -208,9 +208,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const method = options?.method ?? "GET";
   const startedAt = performance.now();
   try {
+    const headers = new Headers(options?.headers);
+    if (options?.body != null && !headers.has("content-type")) headers.set("content-type", "application/json");
+    if (token) headers.set("authorization", `Bearer ${token}`);
     const response = await fetch(path, {
       ...options,
-      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...options?.headers },
+      headers,
     });
     const durationMs = Math.round(performance.now() - startedAt);
     if (!response.ok) {
