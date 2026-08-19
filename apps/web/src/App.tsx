@@ -18,7 +18,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [tokenVersion, setTokenVersion] = useState(0);
   const health = useQuery({ queryKey: ["health", tokenVersion], queryFn: api.health, refetchInterval: 15_000, retry: 1 });
-  const sources = useQuery({ queryKey: ["sources"], queryFn: api.sources, refetchInterval: 10_000 });
+  const sources = useQuery({ queryKey: ["sources", tokenVersion], queryFn: api.sources, refetchInterval: 10_000 });
   const source = sources.data?.sources.find((candidate) => candidate.key === "ao3") ?? sources.data?.sources[0];
   if (health.error instanceof ApiError && health.error.status === 401) {
     return <Unlock onUnlock={(token) => { setApiToken(token); setTokenVersion((value) => value + 1); void health.refetch(); }} />;
@@ -86,23 +86,40 @@ function LiveEvents({ enabled }: { enabled: boolean }) {
 }
 
 function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavigate: (page: Page) => void }) {
+  const client = useQueryClient();
   const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 30_000 });
-  const works = useQuery({ queryKey: ["works"], queryFn: () => api.works(), refetchInterval: 10_000 });
+  const stats = useQuery({ queryKey: ["statistics"], queryFn: api.statistics, refetchInterval: 15_000 });
   const list = jobs.data?.jobs ?? [];
-  const workList = works.data?.works ?? [];
+  const summary = stats.data?.statistics;
   const active = list.filter((job) => ["queued", "running"].includes(job.status));
-  const totalWords = workList.reduce((sum, work) => sum + (work.words ?? 0), 0);
-  const failed = list.reduce((sum, job) => sum + job.failedCount, 0);
+  const failed = summary?.terminalFailures ?? list.reduce((sum, job) => sum + job.failedCount, 0);
+  const togglePause = useMutation({
+    mutationFn: () => {
+      if (!source) return Promise.reject(new Error("No source configured"));
+      return api.updateSource(source.id, {
+        userAgent: source.userAgent, includeAdult: source.includeAdult, minimumDelayMs: source.minimumDelayMs,
+        dailyRequestBudget: source.dailyRequestBudget, dailyByteBudget: source.dailyByteBudget,
+        requestTimeoutMs: source.requestTimeoutMs, maximumResponseBytes: source.maximumResponseBytes,
+        maximumFailureAttempts: source.maximumFailureAttempts,
+        operatingWindowStartHourUtc: source.operatingWindowStartHourUtc, operatingWindowEndHourUtc: source.operatingWindowEndHourUtc,
+        paused: !source.paused,
+      });
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }),
+  });
   return <>
     <section className="hero-panel">
       <div><p className="eyebrow accent">SYSTEM SUMMARY</p><h2>Your private archive, quietly building.</h2><p>Collect conservatively, retain original captures, and move verified works into your offline OTW Archive.</p></div>
-      <button className="primary" onClick={() => onNavigate("jobs")}><Icon path="M12 5v14M5 12h14" />New collection job</button>
+      <div className="hero-actions">
+        <button className="primary" onClick={() => onNavigate("jobs")}><Icon path="M12 5v14M5 12h14" />New collection job</button>
+        {source && <button className={source.paused ? "primary" : "danger-button"} disabled={togglePause.isPending} onClick={() => togglePause.mutate()} title={source.paused ? "Resume collecting from this source" : "Immediately pause all collection from this source"}>{togglePause.isPending ? "Updating…" : source.paused ? "Resume collection" : "Pause collection"}</button>}
+      </div>
     </section>
     {!source && <Notice title="Configure your first source" text="Create the AO3 source in Settings. New sources begin paused so nothing is requested accidentally." action={() => onNavigate("settings")} />}
     <section className="metric-grid">
-      <Metric label="Collected works" value={formatNumber(workList.length)} note="Loaded in current view" tone="violet" />
-      <Metric label="Archived words" value={compactNumber(totalWords)} note="Across loaded works" tone="cyan" />
-      <Metric label="Active jobs" value={formatNumber(active.length)} note={source?.paused ? "Source is paused" : "Worker may claim tasks"} tone="amber" />
+      <Metric label="Collected works" value={summary ? formatNumber(summary.works) : "—"} note="Stored in archive" tone="violet" />
+      <Metric label="Archived words" value={summary ? compactNumber(summary.words) : "—"} note="Across all stored works" tone="cyan" />
+      <Metric label="Active jobs" value={formatNumber(summary?.activeJobs ?? active.length)} note={source?.paused ? "Source is paused" : "Worker may claim tasks"} tone="amber" />
       <Metric label="Terminal failures" value={formatNumber(failed)} note="Available for review" tone={failed ? "rose" : "green"} />
     </section>
     <section className="two-column">
@@ -114,6 +131,8 @@ function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavig
           <Safety label="Source requests" value={source?.paused ? "Paused" : "Enabled"} good={!source?.paused} />
           <Safety label="Minimum delay" value={source ? `${source.minimumDelayMs / 1000}s` : "—"} good />
           <Safety label="Daily request cap" value={source?.dailyRequestBudget?.toString() ?? "Unlimited"} good={source?.dailyRequestBudget !== null} />
+          <Safety label="Requests today" value={source ? `${formatNumber(source.todayUsage?.requests ?? 0)} / ${source.dailyRequestBudget === null ? "∞" : formatNumber(source.dailyRequestBudget)}` : "—"} good={source?.dailyRequestBudget === null || (source?.todayUsage?.requests ?? 0) < (source?.dailyRequestBudget ?? 0)} />
+          <Safety label="Bandwidth today" value={source ? `${formatBytes(source.todayUsage?.bytes ?? 0)} / ${source.dailyByteBudget === null ? "∞" : formatBytes(source.dailyByteBudget)}` : "—"} good={source?.dailyByteBudget === null || (source?.todayUsage?.bytes ?? 0) < (source?.dailyByteBudget ?? 0)} />
           <Safety label="Visibility" value="Private / restricted" good />
         </div>
       </Panel>

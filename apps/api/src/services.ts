@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
 import {
   authors,
@@ -10,6 +10,7 @@ import {
   exportRuns,
   series,
   seriesWorks,
+  sourceDailyUsage,
   sources,
   tags,
   workAuthors,
@@ -34,6 +35,15 @@ export interface SourceUpdate {
 
 export type SourceCreate = Omit<SourceUpdate, "paused"> & { key: string; origin: string };
 
+export interface CollectorStatistics {
+  works: number;
+  words: number;
+  chapters: number;
+  authors: number;
+  activeJobs: number;
+  terminalFailures: number;
+}
+
 export interface ApiServices {
   ready(): Promise<boolean>;
   listSources(): Promise<unknown[]>;
@@ -57,6 +67,7 @@ export interface ApiServices {
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
   getChapter(workId: number, chapterId: number): Promise<unknown | null>;
+  statistics(): Promise<CollectorStatistics>;
 }
 
 export class MariaDbApiServices implements ApiServices {
@@ -76,7 +87,21 @@ export class MariaDbApiServices implements ApiServices {
   }
 
   async listSources(): Promise<unknown[]> {
-    return this.db.select().from(sources).orderBy(asc(sources.id));
+    const rows = await this.db.select().from(sources).orderBy(asc(sources.id));
+    const usageDate = new Date().toISOString().slice(0, 10);
+    const usageRows = await this.db.select({
+      sourceId: sourceDailyUsage.sourceId,
+      requestCount: sourceDailyUsage.requestCount,
+      responseBytes: sourceDailyUsage.responseBytes,
+    }).from(sourceDailyUsage).where(eq(sourceDailyUsage.usageDate, usageDate));
+    const usageBySource = new Map(usageRows.map((row) => [row.sourceId, row]));
+    return rows.map((row) => ({
+      ...row,
+      todayUsage: {
+        requests: usageBySource.get(row.id)?.requestCount ?? 0,
+        bytes: usageBySource.get(row.id)?.responseBytes ?? 0,
+      },
+    }));
   }
 
   async createSource(input: SourceCreate): Promise<number> {
@@ -281,6 +306,27 @@ export class MariaDbApiServices implements ApiServices {
       publishedAt: chapters.publishedAt,
       wordCount: chapters.wordCount,
     }).from(chapters).where(and(eq(chapters.id, chapterId), eq(chapters.workId, workId))).limit(1))[0] ?? null;
+  }
+
+  async statistics(): Promise<CollectorStatistics> {
+    const [workStats] = await this.db.select({
+      works: count(),
+      words: sql<number>`coalesce(sum(${works.words}), 0)`,
+    }).from(works);
+    const [chapterStats] = await this.db.select({ chapters: count() }).from(chapters);
+    const [authorStats] = await this.db.select({ authors: count() }).from(authors);
+    const [jobStats] = await this.db.select({
+      activeJobs: sql<number>`coalesce(sum(case when ${collectionJobs.status} in ('queued', 'running') then 1 else 0 end), 0)`,
+      terminalFailures: sql<number>`coalesce(sum(${collectionJobs.failedCount}), 0)`,
+    }).from(collectionJobs);
+    return {
+      works: workStats?.works ?? 0,
+      words: Number(workStats?.words ?? 0),
+      chapters: chapterStats?.chapters ?? 0,
+      authors: authorStats?.authors ?? 0,
+      activeJobs: Number(jobStats?.activeJobs ?? 0),
+      terminalFailures: Number(jobStats?.terminalFailures ?? 0),
+    };
   }
 }
 

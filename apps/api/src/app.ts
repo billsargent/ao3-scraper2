@@ -65,7 +65,12 @@ export interface ApiSecurityOptions { apiToken?: string; logger?: boolean; commi
 export function buildApp(services: ApiServices, security: ApiSecurityOptions = {}): FastifyInstance {
   const app = Fastify({ logger: security.logger ?? false });
   app.addHook("onRequest", async (request, reply) => {
-    if (!security.apiToken || request.url === "/api/health/live" || request.url === "/healthz") return;
+    // Only the /api routes require the token. The React UI under / is public
+    // so the unlock screen can load, and /api/health/live stays public as the
+    // connectivity probe the unlock screen uses. /healthz is the container
+    // healthcheck and is outside /api.
+    const isApi = request.url.startsWith("/api");
+    if (!security.apiToken || !isApi || request.url === "/api/health/live" || request.url === "/healthz") return;
     const authorization = request.headers.authorization;
     const supplied = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!safeTokenEqual(supplied, security.apiToken)) {
@@ -172,6 +177,7 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     const updated = await services.updateSource(id, SourceBody.parse(request.body));
     return updated ? { updated: true } : reply.status(404).send({ error: "not_found" });
   });
+  app.get("/api/statistics", async () => ({ statistics: await services.statistics() }));
   app.post("/api/jobs/id-range", async (request, reply) => {
     const body = IdRangeBody.parse(request.body);
     const jobId = await services.createIdRangeJob(body.sourceId, {

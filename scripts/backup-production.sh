@@ -13,10 +13,12 @@ COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE" -f "$ROOT/compose.product
 mkdir -p "$PARTIAL" "$DATA_DIR"
 
 printf 'Dumping MariaDB (consistent single-transaction snapshot)...\n'
+# < /dev/null closes stdin: `docker compose exec` otherwise holds stdin open and
+# waits for EOF before spawning the command when run non-interactively (cron/CI).
 "${COMPOSE[@]}" exec -T collector mariadb-dump \
   -u"${COLLECTOR_DATABASE_USER:-collector}" -p"${COLLECTOR_DATABASE_PASSWORD}" \
   --single-transaction --routines --triggers --events "${COLLECTOR_DATABASE_NAME:-ao3_collector}" \
-  | gzip -9 > "$PARTIAL/collector.sql.gz"
+  < /dev/null | gzip -9 > "$PARTIAL/collector.sql.gz"
 
 printf 'Archiving raw blobs and export packages...\n'
 tar -C "$DATA_DIR" -czf "$PARTIAL/data.tar.gz" .

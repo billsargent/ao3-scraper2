@@ -26,6 +26,7 @@ function services(): ApiServices {
     listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getWork: vi.fn().mockResolvedValue(null),
     getChapter: vi.fn().mockResolvedValue(null),
+    statistics: vi.fn().mockResolvedValue({ works: 0, words: 0, chapters: 0, authors: 0, activeJobs: 0, terminalFailures: 0 }),
   };
 }
 

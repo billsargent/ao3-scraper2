@@ -6,7 +6,7 @@ const source = {
   minimumDelayMs: 10000, dailyRequestBudget: 250, dailyByteBudget: 1073741824,
   requestTimeoutMs: 60000, maximumResponseBytes: 20971520, maximumFailureAttempts: 6,
   operatingWindowStartHourUtc: null, operatingWindowEndHourUtc: null,
-  paused: true, nextRequestAt: null,
+  paused: true, nextRequestAt: null, todayUsage: { requests: 12, bytes: 1048576 },
 };
 const exportRecord = {
   id: 1, sourceId: 1, packageId: "00000000-0000-4000-8000-000000000001",
@@ -64,6 +64,7 @@ async function mockApi(page: Page, requireToken = false) {
       const filtered = works.filter((work) => work.title.toLowerCase().includes(query) || work.sourceWorkId.includes(query));
       return json({ works: filtered.slice(offset, offset + limit), total: filtered.length, limit, offset });
     }
+    if (url.pathname === "/api/statistics") return json({ statistics: { works: 18, words: 56250, chapters: 79, authors: 12, activeJobs: 0, terminalFailures: 0 } });
     if (url.pathname === "/api/works/1") return json({ work: {
       ...works[0], sourceUrl: "https://archiveofourown.org/works/10000",
       summaryHtml: "<p>A preserved summary.</p>", notesHtml: "", endNotesHtml: "", contentHash: "sha256:test",

@@ -22,10 +22,11 @@ if ! mariadb-admin ping --socket="$SOCKET" --silent >/dev/null 2>&1; then
 fi
 
 # Prefer password auth (already configured on a previous boot); fall back to the
-# unix-socket root login for the very first boot.
-ROOT_ARGS=(--socket -uroot)
-if mariadb --socket -uroot -p"$ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
-  ROOT_ARGS=(--socket -uroot -p"$ROOT_PASSWORD")
+# unix-socket root login for the very first boot. --socket needs the = form so
+# the next token is not mistaken for the socket path.
+ROOT_ARGS=(--socket="$SOCKET" -uroot)
+if mariadb --socket="$SOCKET" -uroot -p"$ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then
+  ROOT_ARGS=(--socket="$SOCKET" -uroot -p"$ROOT_PASSWORD")
 fi
 
 mariadb "${ROOT_ARGS[@]}" <<SQL

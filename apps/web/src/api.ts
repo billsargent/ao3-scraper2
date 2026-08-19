@@ -14,6 +14,7 @@ export interface Source {
   operatingWindowEndHourUtc: number | null;
   paused: boolean;
   nextRequestAt: string | null;
+  todayUsage?: { requests: number; bytes: number };
 }
 
 export interface CollectionJob {
@@ -235,8 +236,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
+export interface CollectorStatistics {
+  works: number;
+  words: number;
+  chapters: number;
+  authors: number;
+  activeJobs: number;
+  terminalFailures: number;
+}
+
 export const api = {
   health: () => request<{ status: string; commit: string }>("/api/health/ready"),
+  statistics: () => request<{ statistics: CollectorStatistics }>("/api/statistics"),
   sources: () => request<{ sources: Source[] }>("/api/sources"),
   createSource: (body: { key: string; origin: string }) => request<{ sourceId: number; paused: boolean }>("/api/sources", {
     method: "POST", body: JSON.stringify(body),
