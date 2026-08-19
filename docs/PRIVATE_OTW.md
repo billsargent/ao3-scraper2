@@ -20,6 +20,8 @@ Defaults bind OTW only to `127.0.0.1:3000`, disable outbound email, add `X-Robot
 
 The setup creates or updates a dedicated `offline_importer` user with the OTW archivist role. Low-memory mode uses a 128 MB Elasticsearch heap and leaves Resque disabled. Set `OTW_ENABLE_RESQUE=true` only on a host with enough RAM; without it, background indexing/email queues are not processed, but imported work and chapter pages remain available.
 
+On first startup, the private profile loads OTW's schema and required fixtures but intentionally skips `db:otwseed`'s final filter/search rebuilds. Those derived jobs are unnecessary for the empty private archive and can take an extremely long time on a Raspberry Pi. Initialization commands have foreground timeouts; `Ctrl+C` removes their one-off container. If an older startup is already stuck after `All jobs enqueued!`, use `npm run services:stop`, update the code, and run `npm run services:start` again. Volumes are preserved.
+
 ## Import a verified package
 
 ```bash

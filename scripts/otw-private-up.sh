@@ -23,21 +23,44 @@ cp "$OTW_DIR/config/docker/redis.yml" "$OTW_DIR/config/redis.yml"
 chmod +x "$OTW_DIR"/bin/* "$OTW_DIR"/script/reset_database.sh 2>/dev/null || true
 
 COMPOSE=("${DOCKER[@]}" compose --env-file "$ENV_FILE" -f "$OTW_DIR/docker-compose.yml" -f "$OTW_DIR/docker-compose.private.yml" --profile dev)
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$OTW_DIR")}"
+cleanup_oneoffs() {
+  local ids=()
+  mapfile -t ids < <("${DOCKER[@]}" ps -aq \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME" \
+    --filter "label=com.docker.compose.oneoff=True")
+  if ((${#ids[@]})); then "${DOCKER[@]}" rm -f "${ids[@]}" >/dev/null 2>&1 || true; fi
+}
+interrupt_setup() {
+  echo >&2
+  echo "Stopping OTW setup container..." >&2
+  cleanup_oneoffs
+  exit 130
+}
+trap interrupt_setup INT TERM
+
 "${COMPOSE[@]}" up -d db redis mc es
 for _ in $(seq 1 120); do curl -fsS http://localhost:9200 >/dev/null 2>&1 && break; sleep 2; done
 curl -fsS http://localhost:9200 >/dev/null || { echo "Elasticsearch failed to start" >&2; exit 1; }
 
-if ! "${COMPOSE[@]}" exec -T db mariadb -uroot -pchange_me -N -e "SHOW DATABASES LIKE 'otwarchive_development'" | grep -q otwarchive_development; then
-  timeout 900 "${COMPOSE[@]}" run --rm -T --no-deps web bundle exec rake db:otwseed
+# db:otwseed finishes by rebuilding derived filters and queues. Those operations can
+# appear hung for a long time on a Pi and are unnecessary for an empty private
+# preservation archive. Load the required schema and fixtures, but skip that work.
+DATABASE_READY="$("${COMPOSE[@]}" exec -T db mariadb -uroot -pchange_me -N -e \
+  "SELECT COUNT(*) FROM otwarchive_development.languages" 2>/dev/null || true)"
+if [[ ! "$DATABASE_READY" =~ ^[1-9][0-9]*$ ]]; then
+  timeout --foreground --kill-after=20s 900 "${COMPOSE[@]}" run --rm -T --no-deps web \
+    bundle exec rake db:reset_and_migrate db:seed fixtures:load
 else
-  timeout 900 "${COMPOSE[@]}" run --rm -T --no-deps web bundle exec rake db:migrate
+  timeout --foreground --kill-after=20s 900 "${COMPOSE[@]}" run --rm -T --no-deps web bundle exec rake db:migrate
 fi
 
-timeout 300 "${COMPOSE[@]}" run --rm -T --no-deps \
+timeout --foreground --kill-after=20s 300 "${COMPOSE[@]}" run --rm -T --no-deps \
   -e OTW_ARCHIVIST_LOGIN="$OTW_ARCHIVIST_LOGIN" \
   -e OTW_ARCHIVIST_EMAIL="$OTW_ARCHIVIST_EMAIL" \
   -e OTW_ARCHIVIST_PASSWORD="$OTW_ARCHIVIST_PASSWORD" \
   web bundle exec rails runner script/create_offline_archivist.rb
+trap - INT TERM
 "${COMPOSE[@]}" up -d --no-deps --force-recreate web
 if [ "${OTW_ENABLE_RESQUE:-false}" = "true" ]; then
   "${COMPOSE[@]}" up -d resque

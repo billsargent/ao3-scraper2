@@ -350,13 +350,37 @@ Refresh the job detail. Pausing now:
 
 The UI now displays the field name and API explanation. Numeric source controls accept any non-negative whole number; zero disables/unlimits the setting as listed above. Open **Debug log** to see the request path, status, duration, server message, validation issues, and request ID. Download the JSON when asking for support.
 
-### A terminal stays on `otwarchive-web-run-... Created`
+### OTW startup stops after `All jobs enqueued!`
 
-First-time OTW database seeding can take several minutes. The current scripts use non-interactive one-off containers and timeouts. `Ctrl+C` should stop the command. From another terminal, run this from the repository root to stop services and remove one-off containers:
+Older startup scripts used the full `db:otwseed` task. Its final filter/search maintenance can appear stuck for a long time on a Raspberry Pi, especially after this message:
+
+```text
+All jobs enqueued! Once all jobs have finished running, call rake search:run_world_index_queue.
+```
+
+That derived search work is unnecessary for an empty low-memory private preservation archive. Current startup loads the required schema and fixtures without those final filter rebuilds. It also uses foreground timeouts and removes one-off setup containers when interrupted.
+
+If an older script is currently stuck, open a second terminal in the repository root and run:
 
 ```bash
 npm run services:stop
 ```
+
+This does not delete database volumes. Install the current project files, then restart:
+
+```bash
+npm run services:start
+```
+
+Because the schema and fixtures were already loaded before the displayed message, startup normally detects the initialized database, runs only pending migrations, creates/verifies the offline archivist, and continues. If stopping everything is undesirable, remove only the named one-off container shown in the first terminal:
+
+```bash
+docker rm -f otwarchive-web-run-<id-shown-in-output>
+```
+
+### A terminal stays on `otwarchive-web-run-... Created`
+
+First-time OTW database initialization can still take several minutes. The current scripts use non-interactive one-off containers, foreground timeouts, and interrupt cleanup. `Ctrl+C` should stop the command. From another terminal, `npm run services:stop` remains the reliable emergency stop and preserves volumes.
 
 ### OTW search is stale
 
