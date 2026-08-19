@@ -23,7 +23,7 @@ export class JobPlannerStore {
       SET planning_status = 'leased', planning_lease_token = ${leaseToken},
           planning_lease_expires_at = ${leaseExpiresAt}, updated_at = ${now}
       WHERE job_type = 'id_range'
-        AND status != 'cancelled'
+        AND status IN ('queued', 'running')
         AND (
           planning_status = 'queued'
           OR (planning_status IN ('leased', 'planning') AND planning_lease_expires_at <= ${now})

@@ -3,12 +3,18 @@ import { basename, join } from "node:path";
 import { and, asc, count, desc, eq, inArray, like, or } from "drizzle-orm";
 import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
 import {
+  authors,
   chapters,
   collectionJobs,
   collectionTasks,
   exportRuns,
+  series,
+  seriesWorks,
   sources,
+  tags,
+  workAuthors,
   works,
+  workTags,
   type CollectorDatabase,
 } from "@ao3-offsite/database";
 
@@ -74,14 +80,24 @@ export class MariaDbApiServices implements ApiServices {
   }
 
   async createSource(input: SourceCreate): Promise<number> {
-    const result = await this.db.insert(sources).values({ ...input, paused: true }).$returningId();
+    const result = await this.db.insert(sources).values({
+      ...input,
+      dailyRequestBudget: input.dailyRequestBudget === 0 ? null : input.dailyRequestBudget,
+      dailyByteBudget: input.dailyByteBudget === 0 ? null : input.dailyByteBudget,
+      paused: true,
+    }).$returningId();
     const id = result[0]?.id;
     if (!id) throw new Error("Source creation did not return an ID");
     return id;
   }
 
   async updateSource(sourceId: number, update: SourceUpdate): Promise<boolean> {
-    const result = await this.db.update(sources).set({ ...update, updatedAt: new Date() }).where(eq(sources.id, sourceId));
+    const result = await this.db.update(sources).set({
+      ...update,
+      dailyRequestBudget: update.dailyRequestBudget === 0 ? null : update.dailyRequestBudget,
+      dailyByteBudget: update.dailyByteBudget === 0 ? null : update.dailyByteBudget,
+      updatedAt: new Date(),
+    }).where(eq(sources.id, sourceId));
     return affectedRows(result) === 1;
   }
 
@@ -213,15 +229,42 @@ export class MariaDbApiServices implements ApiServices {
   async getWork(workId: number): Promise<unknown | null> {
     const work = (await this.db.select().from(works).where(eq(works.id, workId)).limit(1))[0];
     if (!work) return null;
-    const chapterRows = await this.db.select({
-      id: chapters.id,
-      sourceChapterId: chapters.sourceChapterId,
-      position: chapters.position,
-      title: chapters.title,
-      wordCount: chapters.wordCount,
-      contentHash: chapters.contentHash,
-    }).from(chapters).where(and(eq(chapters.workId, workId))).orderBy(asc(chapters.position));
-    return { ...work, chapters: chapterRows };
+    const [chapterRows, authorRows, tagRows, seriesRows] = await Promise.all([
+      this.db.select({
+        id: chapters.id,
+        sourceChapterId: chapters.sourceChapterId,
+        position: chapters.position,
+        title: chapters.title,
+        wordCount: chapters.wordCount,
+        contentHash: chapters.contentHash,
+      }).from(chapters).where(eq(chapters.workId, workId)).orderBy(asc(chapters.position)),
+      this.db.select({
+        sourceAuthorId: authors.sourceAuthorId,
+        name: authors.name,
+        profileUrl: authors.profileUrl,
+        anonymous: authors.anonymous,
+        orphaned: authors.orphaned,
+        position: workAuthors.position,
+      }).from(workAuthors).innerJoin(authors, eq(authors.id, workAuthors.authorId))
+        .where(eq(workAuthors.workId, workId)).orderBy(asc(workAuthors.position)),
+      this.db.select({
+        sourceTagId: tags.sourceTagId,
+        type: tags.type,
+        name: tags.name,
+        canonical: tags.canonical,
+        sourceUrl: tags.sourceUrl,
+        position: workTags.position,
+      }).from(workTags).innerJoin(tags, eq(tags.id, workTags.tagId))
+        .where(eq(workTags.workId, workId)).orderBy(asc(workTags.position)),
+      this.db.select({
+        sourceSeriesId: series.sourceSeriesId,
+        name: series.name,
+        sourceUrl: series.sourceUrl,
+        position: seriesWorks.position,
+      }).from(seriesWorks).innerJoin(series, eq(series.id, seriesWorks.seriesId))
+        .where(eq(seriesWorks.workId, workId)).orderBy(asc(seriesWorks.position)),
+    ]);
+    return { ...work, chapters: chapterRows, authors: authorRows, tags: tagRows, series: seriesRows };
   }
 
   async getChapter(workId: number, chapterId: number): Promise<unknown | null> {

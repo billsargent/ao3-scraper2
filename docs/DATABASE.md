@@ -1,5 +1,11 @@
 # MariaDB/MySQL collector database
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 The collector now targets MySQL-compatible databases through `mysql2` and Drizzle. MariaDB is the development default because OTW Archive already uses the MySQL protocol and MariaDB in its own deployment.
 
 ## Isolation

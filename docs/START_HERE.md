@@ -1,30 +1,25 @@
-# Start here: Archive Relay + private OTW Archive
+# Start here
 
-This guide is the primary operator runbook. The other documents provide deeper reference material.
+> **Working directory for every command in this guide:** the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
 
-## What the system contains
+Archive Relay has two cooperating applications:
 
-For a complete URL/port table and Raspberry Pi sizing guidance, see [`PORTS_AND_HARDWARE.md`](PORTS_AND_HARDWARE.md).
+- **Collector UI** — controls jobs, stores raw/normalized data, and creates verified packages.
+- **Private OTW Archive** — imports those packages and displays native OTW work pages.
 
-Two applications cooperate but keep separate databases:
+They use separate databases. The collector never writes directly to OTW tables.
 
-1. **Archive Relay collector** — TypeScript API, workers, Vite interface, MariaDB, raw-response storage, and verified transfer packages.
-2. **Private OTW Archive** — Rails application, its own MariaDB, Redis, Memcached, Elasticsearch, and the preservation importer.
-
-The collector never writes directly to OTW tables. Verified packages are the boundary.
+For all ports and Raspberry Pi guidance, see [`PORTS_AND_HARDWARE.md`](PORTS_AND_HARDWARE.md).
 
 ---
 
-## Prerequisites
+## First-time setup: one command
 
-Install:
-
-- Git
-- Node.js 20+
-- npm 10+
-- Docker Engine/Desktop with Compose v2
-
-Verify:
+Docker and npm must already work:
 
 ```bash
 node --version
@@ -33,299 +28,101 @@ docker version
 docker compose version
 ```
 
-Keep the repositories as siblings:
-
-```text
-parent-directory/
-├── ao3-offsite-pipeline/
-└── otwarchive/
-```
-
-If your OTW checkout is elsewhere, set `OTW_DIR` in `.env.otw-private`.
-
----
-
-# Fastest complete setup
-
-The setup script generates secrets, builds collector and OTW images, installs the importer, and optionally starts both stacks:
+Build, configure, test, and start everything:
 
 ```bash
 npm run setup:all -- --start
 ```
 
-First OTW build can take a long time. To prepare without starting:
+The first OTW image build can take several minutes.
+
+The setup script:
+
+1. Generates database passwords, API token, and OTW archivist password.
+2. Creates `.env.production` and `.env.otw-private`.
+3. Installs and builds the Node workspace.
+4. Runs tests.
+5. Builds collector and OTW images.
+6. Installs the importer into the sibling `otwarchive` checkout.
+7. Starts both persistent stacks.
+
+Open:
+
+```text
+Collector UI:       http://localhost:8080
+Private OTW Archive: http://localhost:3000
+```
+
+The API token is in `.env.production`. The OTW login/password are in `.env.otw-private`. Both files are ignored by Git.
+
+The collector source starts **paused**.
+
+---
+
+## Start and stop everything after it has been built
 
 ```bash
-npm run setup:all
 npm run services:start
+npm run services:status
+npm run services:stop
 ```
 
-Control the entire persistent stack with one command:
+Other lifecycle commands:
 
 ```bash
-bash scripts/all-services.sh start all
-bash scripts/all-services.sh status all
-bash scripts/all-services.sh backup all
-bash scripts/all-services.sh stop all
+npm run services:backup
+bash scripts/all-services.sh restart all
+bash scripts/all-services.sh logs all
 ```
 
-This complete mode uses the production collector UI on `http://localhost:8080` and private OTW on `http://localhost:3000`. New source records remain paused until explicitly enabled.
+Limit an action to one stack:
+
+```bash
+bash scripts/all-services.sh start collector
+bash scripts/all-services.sh stop collector
+bash scripts/all-services.sh start otw
+bash scripts/all-services.sh stop otw
+```
+
+`services:start` does not rerun the setup wizard or regenerate secrets. It starts already-built images.
 
 ---
 
-# Part 1 — Development collector
+## Full destructive reset
 
-## 1. Install dependencies
-
-```bash
-cd ao3-offsite-pipeline
-npm install
-```
-
-## 2. Configure local development
+This deletes collector and OTW containers, database volumes, raw blobs, generated packages, and private OTW local storage. It does not delete source code, the saved validation dataset, backups, or environment files.
 
 ```bash
-cp env.example .env
+CONFIRM_RESET=ERASE_ALL npm run services:reset
 ```
 
-The checked-in defaults are local-development values. The AO3 source policy itself is stored in MariaDB and edited through the UI.
-
-## 3. Start collector MariaDB
+To also delete backups or generated environment files:
 
 ```bash
-docker compose up -d --wait collector-db
+CONFIRM_RESET=ERASE_ALL ERASE_BACKUPS=yes ERASE_CONFIG=yes npm run services:reset
 ```
 
-Apply migrations:
+Then rebuild from scratch:
 
 ```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm run db:migrate
+npm run setup:all -- --start
 ```
 
-PowerShell:
-
-```powershell
-$env:COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-```
-
-## 4. Start the control plane
-
-Use separate terminals.
-
-### Terminal 1 — API
-
-```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm run api:start
-```
-
-### Terminal 2 — Vite interface
-
-```bash
-npm run web:dev
-```
-
-Open:
-
-```text
-http://localhost:5173
-```
-
-### Terminal 3 — planner
-
-```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm run planner-worker:start
-```
-
-### Terminal 4 — package exporter
-
-```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm run export-worker:start
-```
-
-Do **not** start the source collector merely to browse existing offline data.
-
-## 5. Load the saved offline validation dataset
-
-This performs no AO3 requests:
-
-```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm run dataset:load -- datasets/harry-potter-page-1/package
-```
-
-Expected:
-
-```text
-18 works
-79 chapters
-15 source identities
-203 unique tags
-1 series
-```
-
-The source is created paused.
-
-## 6. Start source collection only when intentional
-
-```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm run worker:start
-```
-
-Starting the process is not enough to contact the source: the source must also be enabled in **Source Settings**.
-
-Before enabling, review:
-
-- Browser ID / User-Agent
-- Adult-content policy
-- Minimum delay
-- Daily request count
-- Daily byte budget
-- Maximum response size
-- Request timeout
-- Failure attempts
-- Optional UTC operating window
-- Job range
-
-Recommended initial policy:
-
-```text
-Concurrency:          1
-Minimum delay:       10 seconds
-Daily requests:     250
-Run validation cap:  25
-Source state:         paused until reviewed
-```
-
-Use the emergency pause in Source Settings to stop new claims. An in-flight request is allowed to finish.
+Back up first if any data matters.
 
 ---
 
-# Part 2 — Operator authentication
+## Load the saved 18-work dataset
 
-For localhost-only development, `API_TOKEN` is optional.
+The production collector database is separate from the development database. For normal UI evaluation, use the development collector instructions in `OPERATIONS.md`, or import a generated package into OTW directly.
 
-For shared/private-network access:
-
-```bash
-openssl rand -hex 32
-```
-
-Set it before starting the API:
-
-```bash
-export API_TOKEN='<generated value>'
-```
-
-The web interface shows an unlock screen. API calls use:
-
-```bash
-curl -H "Authorization: Bearer $API_TOKEN" \
-  http://127.0.0.1:3001/api/health/ready
-```
-
-Always use TLS when crossing a network. A bearer token does not encrypt traffic.
-
----
-
-# Part 3 — Jobs and packages
-
-## Create a collection job
-
-Use **Collection Jobs → New job**. Creation is fast because the planner expands ranges asynchronously in bounded batches.
-
-Start small. The 10-million-ID API limit is a configuration guard, not a recommended job size.
-
-Job states are durable across process restarts. The planner checkpoints its cursor. Collector tasks use leases and recover when a worker dies.
-
-## Review failures
-
-Use **Failure Review** to inspect:
-
-- Work ID
-- Attempts
-- Error code/message
-- Retryable versus terminal state
-
-Retrying job failures clears terminal errors and reopens only the failed tasks.
-
-## Create a package
-
-Use **Transfer Packages → Queue export**. The export worker:
-
-1. Selects new/changed works.
-2. Writes JSONL files.
-3. Validates references and counts.
-4. Writes checksums.
-5. Reopens and verifies the package.
-6. Creates `.tar.gz`.
-7. Computes archive SHA-256 and size.
-8. Marks works exported.
-
-The first non-empty package is a snapshot. Later packages reference the latest completed non-empty parent. Multiple export workers are safe; sequence and parent assignment are serialized per source.
-
-Use **Inspect** to view manifest counts, verification, SHA-256, download, and OTW import status.
-
----
-
-# Part 4 — Persistent private OTW Archive
-
-## 1. Configure
-
-```bash
-cp env.otw-private.example .env.otw-private
-```
-
-Change at minimum:
-
-```dotenv
-OTW_ARCHIVIST_PASSWORD=<strong unique password>
-```
-
-Default security behavior:
-
-- Binds to `127.0.0.1:3000`
-- Outbound email disabled
-- `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`
-- Work responses private/no-store
-- Dedicated `offline_importer` archivist
-- Resque disabled in the low-memory profile
-
-## 2. Start
-
-```bash
-npm run otw:up
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-Archivist login defaults to:
-
-```text
-offline_importer
-```
-
-The password remains only in ignored `.env.otw-private`.
-
-## 3. Import a package
-
-Import the saved 18-work package:
+To import the saved package into the persistent private OTW archive:
 
 ```bash
 npm run otw:import -- datasets/harry-potter-page-1/package
 ```
 
-Or import a generated package directory under `data/exports/<package-id>`.
-
-Expected saved validation result:
+Expected result:
 
 ```text
 Works:    18
@@ -334,230 +131,208 @@ Series:    1
 Failed:    0
 ```
 
-Imports are idempotent. A partial run remains retryable. Source IDs and hashes prevent duplicates.
-
-## 4. Collector callback, optional
-
-In `.env.otw-private`:
-
-```dotenv
-COLLECTOR_CALLBACK_URL=http://host.docker.internal:3001/
-COLLECTOR_API_TOKEN=<collector token>
-```
-
-The importer reports `importing`, `imported`, or `failed` and includes the OTW run ID.
-
-## 5. Low-memory behavior
-
-`OTW_ENABLE_RESQUE=false` keeps memory use lower. Work and chapter pages remain available, but background search indexing is not processed.
-
-On a host with adequate memory:
-
-```dotenv
-OTW_ENABLE_RESQUE=true
-```
-
-Then rerun:
-
-```bash
-npm run otw:up
-```
-
-## 6. Stop without deleting records
-
-```bash
-npm run otw:down
-```
-
-Never add `-v` unless you intentionally want to delete OTW MariaDB volumes.
+Imports are idempotent. Re-running the same package skips successful records and retries partial failures.
 
 ---
 
-# Part 5 — Production collector deployment
+## Run a collection job
 
-## Configure
+1. Open the collector UI at `http://localhost:8080`.
+2. Unlock it with `API_TOKEN` from `.env.production`.
+3. Open **Source Settings**.
+4. Review Browser ID, delay, budgets, timeout, retries, and operating window.
+5. Leave the source paused.
+6. Create a small range under **Collection Jobs**.
+7. Confirm the planned task count.
+8. Enable the source only when ready.
+9. Monitor progress and failures.
+10. Pause the source when the planned run finishes.
 
-```bash
-cp env.production.example .env.production
-```
-
-Replace every `change-me` value. Set host UID/GID and a long random API token.
-
-## Start
-
-```bash
-npm run production:up
-```
-
-Default URL:
+Source settings have no configured maximums for delay, request budget, bandwidth, response size, timeout, or retry count. `0` has these meanings:
 
 ```text
-http://localhost:8080
+Minimum delay:       no delay
+Daily requests:      unlimited
+Daily bandwidth:     unlimited
+Maximum response:    unlimited
+Request timeout:     disabled
+Failure attempts:    unlimited
 ```
 
-Only Nginx is published. MariaDB and Fastify remain internal.
-
-## Stop
-
-```bash
-npm run production:down
-```
-
-See `DEPLOYMENT.md` for TLS, networks, logs, updates, and signed images.
+The source remains subject to basic technical constraints such as non-negative whole numbers and database integer storage.
 
 ---
 
-# Part 6 — Backups
+## Review collected metadata
 
-## Collector
+Open **Archive Library**, select **View**, and inspect:
 
-```bash
-npm run production:backup
-```
+- Title and source work ID
+- Public creator identities
+- Summary and notes
+- Rating
+- Warnings
+- Categories
+- Fandoms
+- Relationships
+- Characters
+- Additional/freeform tags
+- Series and position
+- Chapters and full chapter text
 
-Backup contains:
-
-- MariaDB logical dump
-- Raw blobs
-- Transfer packages
-- Metadata
-- Checksums
-
-Restore:
-
-```bash
-CONFIRM_RESTORE=yes \
-  ./scripts/restore-production.sh backups/<timestamp>
-```
-
-## Private OTW
-
-```bash
-npm run otw:backup
-```
-
-Restore:
-
-```bash
-CONFIRM_RESTORE=yes \
-  ./scripts/otw-private-restore.sh backups/otw/<timestamp>
-```
-
-Keep collector and OTW backups off-site. Keep ignored environment files separately in encrypted storage.
+Metadata and tag relationships are stored in MariaDB and included in transfer packages.
 
 ---
 
-# Part 7 — Testing
+## Create and import a transfer package
 
-Fast checks:
+In the collector UI:
+
+1. Open **Transfer Packages**.
+2. Select **Queue export**.
+3. Wait for `completed`.
+4. Open **Inspect**.
+5. Review manifest counts, SHA-256, and verification time.
+6. Download `.tar.gz`, or use the package directory on the host.
+
+Import a package directory into private OTW:
+
+```bash
+npm run otw:import -- data/exports/<package-id>
+```
+
+If collector callbacks are configured, OTW reports `importing`, `imported`, or `failed` automatically.
+
+---
+
+## Back up both systems
+
+```bash
+npm run services:backup
+```
+
+Collector backups go to:
+
+```text
+backups/<timestamp>/
+```
+
+Private OTW backups go to:
+
+```text
+backups/otw/<timestamp>/
+```
+
+Keep at least one copy on another physical machine or encrypted remote storage.
+
+Detailed restore commands are in:
+
+- [`BACKUP_RESTORE.md`](BACKUP_RESTORE.md)
+- [`PRIVATE_OTW.md`](PRIVATE_OTW.md)
+
+---
+
+## Development mode instead of production mode
+
+Use development mode only when changing code:
+
+```bash
+cp env.example .env
+npm install
+docker compose up -d --wait collector-db
+export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
+npm run db:migrate
+```
+
+Use separate terminals:
+
+```bash
+npm run api:start
+npm run web:dev
+npm run planner-worker:start
+npm run export-worker:start
+```
+
+Development URLs:
+
+```text
+UI:       http://localhost:5173
+API:      http://localhost:3001
+MariaDB:  localhost:3307
+```
+
+Start `npm run worker:start` only when intentionally collecting. Source pause is still enforced in MariaDB.
+
+---
+
+## Tests
 
 ```bash
 npm run check
 npm run web:build
-npm audit --omit=dev
-```
-
-Browser workflows:
-
-```bash
-npx playwright install --with-deps chromium
 npm run test:e2e
+npm run docs:verify
 ```
 
-MariaDB integration:
-
-```bash
-export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
-npm test -- --run packages/collector/test/store.integration.test.ts
-```
-
-This resets collector tables. Never run it on important data.
-
-Complete collector-to-OTW proof:
+Full disposable collector-to-OTW proof:
 
 ```bash
 npm run test:full-pipeline
 ```
 
-This uses a disposable OTW test database and must never target the persistent private archive.
+Do not run MariaDB integration/full-pipeline reset tests against important databases.
 
 ---
 
-# Routine operating checklist
+## Troubleshooting
 
-1. Confirm the latest collector and OTW backups exist off-site.
-2. Start collector API/UI/planner/export workers.
-3. Keep the source paused while reviewing jobs.
-4. Start source worker only when collecting.
-5. Confirm source policy and requested IDs.
-6. Enable source.
-7. Monitor jobs, failures, and source health.
-8. Pause after the planned run.
-9. Queue and verify export.
-10. Download or import package into private OTW.
-11. Confirm OTW work/chapter counts and sample pages.
-12. Back up collector and OTW again.
+### UI is missing after closing the browser
 
----
-
-# Troubleshooting quick reference
-
-## Docker command unavailable
-
-Install/start Docker and reopen the terminal:
+Closing the browser does not delete data. Restart:
 
 ```bash
-docker version
-docker compose version
+npm run services:start
 ```
 
-## API not ready
+### Job pause appears ineffective
 
-```bash
-docker compose logs collector-db
-docker compose logs api
+Refresh the job detail. Pausing now:
+
+- Prevents collector task claims.
+- Releases active planning leases.
+- Stops the planner from adding another batch.
+- Allows an already-running HTTP request to finish.
+
+### `validation_error`
+
+The UI now displays the field name and API explanation. Numeric source controls accept any non-negative whole number; zero disables/unlimits the setting as listed above.
+
+### OTW search is stale
+
+Low-memory OTW mode defaults to:
+
+```dotenv
+OTW_ENABLE_RESQUE=false
 ```
 
-For development, verify `COLLECTOR_DATABASE_URL` and port 3307.
+Work pages remain available, but background indexing is not processed. Enable Resque only on a host with sufficient RAM.
 
-## Worker does nothing
+### Need more detail
 
-Check:
-
-- Source paused state
-- Job planning state
-- Task availability time
-- Daily request/byte budget
-- UTC operating window
-- Worker logs
-
-## OTW starts but search is stale
-
-Low-memory mode leaves Resque disabled. Enable it only if the host has enough RAM.
-
-## OTW package is partial
-
-Inspect the import output/log, fix the mapping or required canonical tag, then import the same package again. Successful works are skipped and missing works are retried.
-
-## Browser was closed
-
-Closing the browser does not delete MariaDB volumes or workspace files. Restart the API/Vite processes or run the relevant `up` command.
+- Ports/hardware: [`PORTS_AND_HARDWARE.md`](PORTS_AND_HARDWARE.md)
+- Production: [`DEPLOYMENT.md`](DEPLOYMENT.md)
+- Testing: [`TESTING.md`](TESTING.md)
+- Private OTW: [`PRIVATE_OTW.md`](PRIVATE_OTW.md)
+- Backup/restore: [`BACKUP_RESTORE.md`](BACKUP_RESTORE.md)
 
 ---
 
-# Is the core project done?
+## Completion status
 
-The core private preservation pipeline is implemented and proven:
+The core system is implemented and tested:
 
 ```text
 collect → raw snapshot → normalize → package → verify → import → browse → back up → restore
 ```
 
-Remaining work is optional or operational hardening:
-
-- Metrics and alerting
-- Scheduled restore drills
-- First signed public release
-- Comments
-- Embedded assets
-- Authenticated/restricted-source policy, if ever explicitly authorized
+Remaining work is optional operational enhancement: metrics, scheduled drills, comments, and embedded assets.

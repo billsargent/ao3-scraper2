@@ -52,7 +52,7 @@ export class PoliteSourceClient {
     this.userAgent = options.userAgent.trim();
     if (!this.userAgent) throw new Error("A descriptive User-Agent is required");
     this.minimumDelayMs = options.minimumDelayMs ?? 10_000;
-    if (this.minimumDelayMs < 2_000) throw new Error("minimumDelayMs cannot be lower than 2000ms");
+    if (this.minimumDelayMs < 0) throw new Error("minimumDelayMs cannot be negative");
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.maximumAttempts = options.maximumAttempts ?? 3;
     this.maximumBodyBytes = options.maximumBodyBytes ?? 20 * 1024 * 1024;
@@ -72,7 +72,7 @@ export class PoliteSourceClient {
           const response = await this.fetchImplementation(url, {
             redirect: "follow",
             headers: { "User-Agent": this.userAgent, Accept: "text/html,application/xhtml+xml" },
-            signal: AbortSignal.timeout(this.timeoutMs),
+            signal: this.timeoutMs > 0 ? AbortSignal.timeout(this.timeoutMs) : null,
           });
           this.nextRequestAt = this.now() + this.minimumDelayMs;
           if (new URL(response.url || url.toString()).origin !== this.origin) {
@@ -80,9 +80,9 @@ export class PoliteSourceClient {
           }
           if (response.ok) {
             const declaredLength = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
-            if (declaredLength > this.maximumBodyBytes) throw new SourceRequestError(`Response exceeds body limit`, false, response.status);
+            if (this.maximumBodyBytes > 0 && declaredLength > this.maximumBodyBytes) throw new SourceRequestError(`Response exceeds body limit`, false, response.status);
             const body = await response.text();
-            if (Buffer.byteLength(body, "utf8") > this.maximumBodyBytes) throw new SourceRequestError(`Response exceeds body limit`, false, response.status);
+            if (this.maximumBodyBytes > 0 && Buffer.byteLength(body, "utf8") > this.maximumBodyBytes) throw new SourceRequestError(`Response exceeds body limit`, false, response.status);
             const responseHeaders = Object.fromEntries(
               ["content-type", "content-length", "etag", "last-modified", "cache-control"]
                 .map((name) => [name, response.headers.get(name)] as const)

@@ -1,5 +1,11 @@
 # CI and signed releases
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs:

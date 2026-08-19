@@ -113,6 +113,9 @@ export interface WorkDetail extends WorkSummary {
   endNotesHtml: string;
   contentHash: string;
   chapters: ChapterSummary[];
+  authors: Array<{ sourceAuthorId: string; name: string; profileUrl: string | null; anonymous: boolean; orphaned: boolean; position: number }>;
+  tags: Array<{ sourceTagId: string; type: string; name: string; canonical: boolean | null; sourceUrl: string | null; position: number }>;
+  series: Array<{ sourceSeriesId: string; name: string; sourceUrl: string; position: number }>;
 }
 
 export interface ChapterDetail extends ChapterSummary {
@@ -125,8 +128,16 @@ export interface ChapterDetail extends ChapterSummary {
 
 const TOKEN_KEY = "archive-relay-api-token";
 
+export interface ApiValidationIssue {
+  path?: Array<string | number>;
+  message?: string;
+}
+
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message); this.name = "ApiError"; }
+  constructor(message: string, readonly status: number, readonly issues: ApiValidationIssue[] = []) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 export function getApiToken(): string { return localStorage.getItem(TOKEN_KEY) ?? ""; }
@@ -173,8 +184,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...options?.headers },
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => null) as { error?: string } | null;
-    throw new ApiError(data?.error ?? `Request failed with HTTP ${response.status}`, response.status);
+    const data = await response.json().catch(() => null) as { error?: string; issues?: ApiValidationIssue[]; message?: string } | null;
+    const issues = data?.issues ?? [];
+    const detailedMessage = issues.length
+      ? issues.map((issue) => `${issue.path?.join(".") || "value"}: ${issue.message || "is invalid"}`).join("; ")
+      : data?.message ?? data?.error ?? `Request failed with HTTP ${response.status}`;
+    throw new ApiError(detailedMessage, response.status, issues);
   }
   return response.json() as Promise<T>;
 }

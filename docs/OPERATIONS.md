@@ -1,5 +1,11 @@
 # Collector API and worker operations
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 The control API and worker are now separate processes. MariaDB is authoritative: restarting either process does not lose jobs or task progress.
 
 ## Start local dependencies

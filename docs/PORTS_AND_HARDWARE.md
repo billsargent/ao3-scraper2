@@ -1,5 +1,11 @@
 # Ports, URLs, and hardware sizing
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 ## Which URL should I open?
 
 Use only the UI that matches the mode you started:

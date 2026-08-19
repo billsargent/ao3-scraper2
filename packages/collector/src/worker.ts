@@ -68,7 +68,7 @@ export class CollectorWorker {
       await this.leases.complete(task.taskId, task.leaseToken, { status: "succeeded" });
     } else if (outcome.status === "terminal_failed") {
       await this.leases.complete(task.taskId, task.leaseToken, outcome);
-    } else if (task.attempts >= (task.source.maximumFailureAttempts ?? this.maximumFailureAttempts)) {
+    } else if ((task.source.maximumFailureAttempts ?? this.maximumFailureAttempts) > 0 && task.attempts >= (task.source.maximumFailureAttempts ?? this.maximumFailureAttempts)) {
       await this.leases.complete(task.taskId, task.leaseToken, {
         status: "terminal_failed",
         code: "retry_exhausted",

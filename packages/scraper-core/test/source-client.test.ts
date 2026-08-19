@@ -67,11 +67,16 @@ describe("PoliteSourceClient", () => {
     await expect(client.fetchText("/works/1")).rejects.toThrow("Response exceeds body limit");
   });
 
-  it("enforces a conservative delay floor", () => {
+  it("allows zero delay but rejects negative delay", () => {
     expect(() => new PoliteSourceClient({
       origin: "https://archiveofourown.org",
       userAgent: "OfflineArchiveBot/0.1 contact@example.invalid",
-      minimumDelayMs: 500,
-    })).toThrow("cannot be lower than 2000ms");
+      minimumDelayMs: 0,
+    })).not.toThrow();
+    expect(() => new PoliteSourceClient({
+      origin: "https://archiveofourown.org",
+      userAgent: "OfflineArchiveBot/0.1 contact@example.invalid",
+      minimumDelayMs: -1,
+    })).toThrow("cannot be negative");
   });
 });

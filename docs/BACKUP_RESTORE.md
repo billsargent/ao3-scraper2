@@ -1,5 +1,11 @@
 # Backup and restore
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 ## Create a consistent backup
 
 ```bash

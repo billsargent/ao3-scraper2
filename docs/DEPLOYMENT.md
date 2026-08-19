@@ -1,5 +1,11 @@
 # Production deployment
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 This profile runs the collector control plane. OTW Archive remains a separate deployment and receives verified transfer packages.
 
 ## Requirements

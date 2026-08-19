@@ -13,6 +13,7 @@ npm run setup:all -- --start
 npm run services:status
 npm run services:backup
 npm run services:stop
+CONFIRM_RESET=ERASE_ALL npm run services:reset
 ```
 
 ## Current vertical slice

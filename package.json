@@ -38,6 +38,7 @@
     "services:stop": "bash scripts/all-services.sh stop all",
     "services:status": "bash scripts/all-services.sh status all",
     "services:backup": "bash scripts/all-services.sh backup all",
+    "services:reset": "bash scripts/reset-all.sh",
     "docs:verify": "bash scripts/verify-docs.sh",
     "package:sample": "tsx apps/package-cli/src/index.ts sample",
     "package:sample-update": "tsx apps/package-cli/src/index.ts sample-update",

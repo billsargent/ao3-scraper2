@@ -1,5 +1,11 @@
 # Persistent private OTW Archive
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 The disposable test environment is not the persistent archive. This profile keeps OTW MariaDB volumes and imported records between restarts.
 
 ## Configure and start

@@ -131,17 +131,30 @@ describe("Fastify control API", () => {
     expect(mock.createSource).toHaveBeenCalledWith({ key: "ao3", origin: "https://archiveofourown.org", ...policy });
   });
 
-  it("validates conservative source settings", async () => {
+  it("accepts operator-selected source limits including zero/unlimited values", async () => {
     const mock = services(); const app = buildApp(mock); apps.push(app);
-    const tooFast = await app.inject({
+    const unrestricted = await app.inject({
       method: "PUT", url: "/api/sources/1",
-      payload: { ...policy, minimumDelayMs: 500, paused: false },
+      payload: {
+        ...policy,
+        minimumDelayMs: 0,
+        dailyRequestBudget: 0,
+        dailyByteBudget: 0,
+        requestTimeoutMs: 0,
+        maximumResponseBytes: 0,
+        maximumFailureAttempts: 0,
+        paused: false,
+      },
     });
-    expect(tooFast.statusCode).toBe(400);
-    const valid = await app.inject({
+    expect(unrestricted.statusCode).toBe(200);
+    const negative = await app.inject({
       method: "PUT", url: "/api/sources/1",
-      payload: { ...policy, paused: true },
+      payload: { ...policy, minimumDelayMs: -1, paused: true },
     });
-    expect(valid.statusCode).toBe(200);
+    expect(negative.statusCode).toBe(400);
+    expect(negative.json()).toMatchObject({
+      error: "validation_error",
+      issues: [{ path: ["minimumDelayMs"] }],
+    });
   });
 });

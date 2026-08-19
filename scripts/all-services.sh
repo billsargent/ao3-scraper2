@@ -26,7 +26,7 @@ source "$ROOT/scripts/lib/docker.sh"
 collector() {
   local command="$1"
   case "$command" in
-    start) ENV_FILE="$PROD_ENV" bash "$ROOT/scripts/production-up.sh" ;;
+    start) ENV_FILE="$PROD_ENV" SKIP_BUILD=true bash "$ROOT/scripts/production-up.sh" ;;
     stop) ENV_FILE="$PROD_ENV" bash "$ROOT/scripts/production-down.sh" ;;
     status) "${DOCKER[@]}" compose --env-file "$PROD_ENV" -f "$ROOT/compose.production.yml" ps ;;
     logs) "${DOCKER[@]}" compose --env-file "$PROD_ENV" -f "$ROOT/compose.production.yml" logs --tail=200 ;;

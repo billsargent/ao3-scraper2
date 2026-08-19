@@ -1,5 +1,11 @@
 # Testing guide
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 ## Fast local checks
 
 ```bash
@@ -39,8 +45,10 @@ Playwright starts a Vite server and intercepts API calls with deterministic fixt
 - Operator token unlock
 - Durable ID-range job creation and cancellation
 - Browser ID and granular source policy
+- Explanatory field-level validation errors
+- Job pause/resume controls
 - Server-paginated work list
-- Offline work/chapter reader
+- Offline creators, series, tags, and chapter reader
 - Package manifest and hash inspection
 - Authenticated `.tar.gz` download
 - OTW import-status action

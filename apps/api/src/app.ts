@@ -35,12 +35,12 @@ const IdRangeBody = z.object({
 const SourcePolicy = z.object({
   userAgent: z.string().min(10).max(1000).default(STANDARD_CHROME_USER_AGENT),
   includeAdult: z.boolean().default(true),
-  minimumDelayMs: z.number().int().min(2000).max(3_600_000).default(10000),
-  dailyRequestBudget: z.number().int().min(1).max(100_000).nullable().default(250),
-  dailyByteBudget: z.number().int().min(1_048_576).max(Number.MAX_SAFE_INTEGER).nullable().default(1_073_741_824),
-  requestTimeoutMs: z.number().int().min(5000).max(300_000).default(60_000),
-  maximumResponseBytes: z.number().int().min(1024).max(104_857_600).default(20_971_520),
-  maximumFailureAttempts: z.number().int().min(1).max(20).default(6),
+  minimumDelayMs: z.number().int().nonnegative().default(10000),
+  dailyRequestBudget: z.number().int().nonnegative().nullable().default(250),
+  dailyByteBudget: z.number().int().nonnegative().nullable().default(1_073_741_824),
+  requestTimeoutMs: z.number().int().nonnegative().default(60_000),
+  maximumResponseBytes: z.number().int().nonnegative().default(20_971_520),
+  maximumFailureAttempts: z.number().int().nonnegative().default(6),
   operatingWindowStartHourUtc: z.number().int().min(0).max(23).nullable().default(null),
   operatingWindowEndHourUtc: z.number().int().min(0).max(23).nullable().default(null),
 }).superRefine((policy, context) => {

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, setApiToken, streamEvents, type CollectionJob, type ExportRecord, type Source } from "./api.js";
+import { ApiError, api, setApiToken, streamEvents, type CollectionJob, type ExportRecord, type Source, type WorkDetail } from "./api.js";
 
 type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings";
 
@@ -130,11 +130,12 @@ function Jobs({ source }: { source: Source | undefined }) {
     <Panel title="All jobs">
       {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
         {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} /></td><td><Progress job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
-          {job.status === "running" && <button onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
+          {(job.status === "queued" || job.status === "running") && <button onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
         </div></td></tr>)}
       </tbody></table></div> : <Empty title="The queue is empty" text="Create a small job to begin collecting." />}
+      {control.error && <p className="form-error">Job action failed: {control.error.message}</p>}
     </Panel>
   </>;
 }
@@ -251,7 +252,7 @@ function WorkReader({ workId, onClose }: { workId: number; onClose: () => void }
   const detail = work.data?.work;
   return <div className="reader-backdrop"><section className="reader" role="dialog" aria-modal="true" aria-label={detail?.title ?? "Work reader"}>
     <header><div><p className="eyebrow accent">OFFLINE ARCHIVE READER</p><h2>{detail?.title ?? "Loading work…"}</h2>{detail && <p>AO3 #{detail.sourceWorkId} · {formatNumber(detail.words ?? 0)} words · {detail.chapters.length} chapters</p>}</div><button className="icon-button" aria-label="Close reader" onClick={onClose}>×</button></header>
-    {detail && <div className="reader-layout"><aside><div className="reader-summary"><b>Summary</b><p>{htmlToText(detail.summaryHtml) || "No summary."}</p></div><b className="chapter-label">Chapters</b><div className="chapter-nav">{detail.chapters.map((item) => <button className={chapterId === item.id ? "active" : ""} key={item.id} onClick={() => setChapterId(item.id)}><span>{item.position}</span><div>{item.title || `Chapter ${item.position}`}<small>{item.wordCount ? `${formatNumber(item.wordCount)} words` : "Word count unavailable"}</small></div></button>)}</div></aside><article className="chapter-reader">{chapter.isLoading ? <p className="muted">Loading chapter…</p> : chapter.data ? <><p className="eyebrow">CHAPTER {chapter.data.chapter.position}</p><h3>{chapter.data.chapter.title || detail.title}</h3>{htmlToText(chapter.data.chapter.notesHtml) && <div className="reader-note">{htmlToText(chapter.data.chapter.notesHtml)}</div>}<div className="chapter-text">{htmlToParagraphs(chapter.data.chapter.contentHtml)}</div>{htmlToText(chapter.data.chapter.endNotesHtml) && <div className="reader-note end"><b>End notes</b>{htmlToText(chapter.data.chapter.endNotesHtml)}</div>}</> : <p>Choose a chapter.</p>}</article></div>}
+    {detail && <div className="reader-layout"><aside><div className="reader-summary"><b>Summary</b><p>{htmlToText(detail.summaryHtml) || "No summary."}</p></div><div className="reader-metadata"><div><b>Creator</b><p>{(detail.authors ?? []).map((author) => author.name).join(", ") || "Anonymous"}</p></div>{(detail.series ?? []).length > 0 && <div><b>Series</b><p>{detail.series.map((item) => `${item.position}. ${item.name}`).join(", ")}</p></div>}{Object.entries(groupWorkTags(detail.tags ?? [])).map(([type, values]) => <div key={type}><b>{formatTagType(type)}</b><div className="tag-list">{values.map((tag) => <span key={tag.sourceTagId}>{tag.name}</span>)}</div></div>)}</div><b className="chapter-label">Chapters</b><div className="chapter-nav">{detail.chapters.map((item) => <button className={chapterId === item.id ? "active" : ""} key={item.id} onClick={() => setChapterId(item.id)}><span>{item.position}</span><div>{item.title || `Chapter ${item.position}`}<small>{item.wordCount ? `${formatNumber(item.wordCount)} words` : "Word count unavailable"}</small></div></button>)}</div></aside><article className="chapter-reader">{chapter.isLoading ? <p className="muted">Loading chapter…</p> : chapter.data ? <><p className="eyebrow">CHAPTER {chapter.data.chapter.position}</p><h3>{chapter.data.chapter.title || detail.title}</h3>{htmlToText(chapter.data.chapter.notesHtml) && <div className="reader-note">{htmlToText(chapter.data.chapter.notesHtml)}</div>}<div className="chapter-text">{htmlToParagraphs(chapter.data.chapter.contentHtml)}</div>{htmlToText(chapter.data.chapter.endNotesHtml) && <div className="reader-note end"><b>End notes</b>{htmlToText(chapter.data.chapter.endNotesHtml)}</div>}</> : <p>Choose a chapter.</p>}</article></div>}
   </section></div>;
 }
 
@@ -260,8 +261,8 @@ function Settings({ source }: { source: Source | undefined }) {
   const [userAgent, setUserAgent] = useState(source?.userAgent ?? "");
   const [includeAdult, setIncludeAdult] = useState(source?.includeAdult ?? true);
   const [delay, setDelay] = useState(source?.minimumDelayMs ?? 10000);
-  const [budget, setBudget] = useState(source?.dailyRequestBudget ?? 250);
-  const [byteBudgetMb, setByteBudgetMb] = useState(Math.round((source?.dailyByteBudget ?? 1_073_741_824) / 1_048_576));
+  const [budget, setBudget] = useState(source ? source.dailyRequestBudget ?? 0 : 250);
+  const [byteBudgetMb, setByteBudgetMb] = useState(source ? Math.round((source.dailyByteBudget ?? 0) / 1_048_576) : 1024);
   const [timeoutSeconds, setTimeoutSeconds] = useState((source?.requestTimeoutMs ?? 60_000) / 1000);
   const [maxResponseMb, setMaxResponseMb] = useState(Math.round((source?.maximumResponseBytes ?? 20_971_520) / 1_048_576));
   const [attempts, setAttempts] = useState(source?.maximumFailureAttempts ?? 6);
@@ -271,15 +272,15 @@ function Settings({ source }: { source: Source | undefined }) {
   useEffect(() => {
     if (!source) return;
     setUserAgent(source.userAgent); setIncludeAdult(source.includeAdult); setDelay(source.minimumDelayMs);
-    setBudget(source.dailyRequestBudget ?? 250); setByteBudgetMb(Math.round((source.dailyByteBudget ?? 1_073_741_824) / 1_048_576));
+    setBudget(source.dailyRequestBudget ?? 0); setByteBudgetMb(Math.round((source.dailyByteBudget ?? 0) / 1_048_576));
     setTimeoutSeconds(source.requestTimeoutMs / 1000); setMaxResponseMb(Math.round(source.maximumResponseBytes / 1_048_576));
     setAttempts(source.maximumFailureAttempts); setWindowEnabled(source.operatingWindowStartHourUtc !== null);
     setWindowStart(source.operatingWindowStartHourUtc ?? 0); setWindowEnd(source.operatingWindowEndHourUtc ?? 6);
   }, [source]);
   const update = useMutation({ mutationFn: (paused: boolean) => source ? api.updateSource(source.id, {
-    userAgent, includeAdult, minimumDelayMs: delay, dailyRequestBudget: budget,
-    dailyByteBudget: byteBudgetMb * 1_048_576, requestTimeoutMs: timeoutSeconds * 1000,
-    maximumResponseBytes: maxResponseMb * 1_048_576, maximumFailureAttempts: attempts,
+    userAgent, includeAdult, minimumDelayMs: Math.max(0, Math.round(delay)), dailyRequestBudget: budget === 0 ? null : Math.max(0, Math.round(budget)),
+    dailyByteBudget: byteBudgetMb === 0 ? null : Math.max(0, Math.round(byteBudgetMb * 1_048_576)), requestTimeoutMs: Math.max(0, Math.round(timeoutSeconds * 1000)),
+    maximumResponseBytes: Math.max(0, Math.round(maxResponseMb * 1_048_576)), maximumFailureAttempts: Math.max(0, Math.round(attempts)),
     operatingWindowStartHourUtc: windowEnabled ? windowStart : null,
     operatingWindowEndHourUtc: windowEnabled ? windowEnd : null, paused,
   }) : Promise.reject(new Error("No source")), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
@@ -288,8 +289,8 @@ function Settings({ source }: { source: Source | undefined }) {
   return <div className="settings-layout">
     <Panel title="Source policy"><div className="settings-form">
       <div className="settings-section"><h3>Browser identity</h3><label>Browser ID / User-Agent<textarea rows={3} value={userAgent} onChange={(e) => setUserAgent(e.target.value)} /><small>Defaults to a standard Chrome browser identity. You can append a project contact identifier if desired.</small></label><label className="toggle-row"><input type="checkbox" checked={includeAdult} onChange={(e) => setIncludeAdult(e.target.checked)} /><span><b>Accept adult-content interstitials</b><small>Allows collection of all publicly accessible ratings.</small></span></label></div>
-      <div className="settings-section"><h3>Request pacing and budgets</h3><div className="form-grid"><label>Minimum delay (ms)<input type="number" min="2000" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /></label><label>Daily requests<input type="number" min="1" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label><label>Daily bandwidth (MB)<input type="number" min="1" value={byteBudgetMb} onChange={(e) => setByteBudgetMb(Number(e.target.value))} /></label><label>Maximum response (MB)<input type="number" min="1" max="100" value={maxResponseMb} onChange={(e) => setMaxResponseMb(Number(e.target.value))} /></label></div></div>
-      <div className="settings-section"><h3>Failures and schedule</h3><div className="form-grid"><label>Request timeout (seconds)<input type="number" min="5" max="300" value={timeoutSeconds} onChange={(e) => setTimeoutSeconds(Number(e.target.value))} /></label><label>Maximum failure attempts<input type="number" min="1" max="20" value={attempts} onChange={(e) => setAttempts(Number(e.target.value))} /></label></div><label className="toggle-row"><input type="checkbox" checked={windowEnabled} onChange={(e) => setWindowEnabled(e.target.checked)} /><span><b>Restrict collection to a UTC window</b><small>Useful for operating only during agreed low-traffic hours.</small></span></label>{windowEnabled && <div className="form-grid"><label>Start hour UTC<input type="number" min="0" max="23" value={windowStart} onChange={(e) => setWindowStart(Number(e.target.value))} /></label><label>End hour UTC<input type="number" min="0" max="23" value={windowEnd} onChange={(e) => setWindowEnd(Number(e.target.value))} /></label></div>}</div>
+      <div className="settings-section"><h3>Request pacing and budgets</h3><div className="form-grid"><label>Minimum delay (ms)<input type="number" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /><small>0 disables the delay.</small></label><label>Daily requests<input type="number" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /><small>0 means unlimited.</small></label><label>Daily bandwidth (MB)<input type="number" value={byteBudgetMb} onChange={(e) => setByteBudgetMb(Number(e.target.value))} /><small>0 means unlimited.</small></label><label>Maximum response (MB)<input type="number" value={maxResponseMb} onChange={(e) => setMaxResponseMb(Number(e.target.value))} /><small>0 means unlimited.</small></label></div></div>
+      <div className="settings-section"><h3>Failures and schedule</h3><div className="form-grid"><label>Request timeout (seconds)<input type="number" value={timeoutSeconds} onChange={(e) => setTimeoutSeconds(Number(e.target.value))} /><small>0 disables the request timeout.</small></label><label>Maximum failure attempts<input type="number" value={attempts} onChange={(e) => setAttempts(Number(e.target.value))} /><small>0 means unlimited retries.</small></label></div><label className="toggle-row"><input type="checkbox" checked={windowEnabled} onChange={(e) => setWindowEnabled(e.target.checked)} /><span><b>Restrict collection to a UTC window</b><small>Useful for operating only during agreed low-traffic hours.</small></span></label>{windowEnabled && <div className="form-grid"><label>Start hour UTC<input type="number" min="0" max="23" value={windowStart} onChange={(e) => setWindowStart(Number(e.target.value))} /></label><label>End hour UTC<input type="number" min="0" max="23" value={windowEnd} onChange={(e) => setWindowEnd(Number(e.target.value))} /></label></div>}</div>
       <div className="policy-callout"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><p><b>Distributed safety boundary</b><span>Delay, request, bandwidth, and schedule controls are enforced transactionally across every worker.</span></p></div><div className="settings-actions"><button className="secondary" onClick={() => update.mutate(true)}>Save & pause</button><button className={source.paused ? "primary" : "danger-button"} onClick={() => update.mutate(!source.paused)}>{source.paused ? "Enable collection" : "Pause immediately"}</button></div>{update.error && <p className="form-error">{update.error.message}</p>}
     </div></Panel>
     <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source</dt><dd>{source.origin}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>{source.includeAdult ? "Allowed" : "Excluded"}</dd></div><div><dt>Daily bandwidth</dt><dd>{compactNumber(source.dailyByteBudget ?? 0)}B</dd></div><div><dt>Operating window</dt><dd>{source.operatingWindowStartHourUtc === null ? "Any time" : `${source.operatingWindowStartHourUtc}:00–${source.operatingWindowEndHourUtc}:00 UTC`}</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
@@ -326,6 +327,13 @@ function htmlToText(html: string) {
   if (!html) return "";
   return new DOMParser().parseFromString(html, "text/html").body.textContent?.replace(/\s+/g, " ").trim() ?? "";
 }
+function groupWorkTags(tags: WorkDetail["tags"]): Record<string, WorkDetail["tags"]> {
+  return tags.reduce<Record<string, WorkDetail["tags"]>>((groups, tag) => {
+    (groups[tag.type] ??= []).push(tag);
+    return groups;
+  }, {});
+}
+function formatTagType(type: string) { return type.replace(/([a-z])([A-Z])/g, "$1 $2"); }
 function htmlToParagraphs(html: string) {
   const document = new DOMParser().parseFromString(html, "text/html");
   const blocks = [...document.body.querySelectorAll("p, li, blockquote, h1, h2, h3, h4")]

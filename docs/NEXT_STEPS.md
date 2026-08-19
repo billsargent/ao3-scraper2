@@ -1,5 +1,11 @@
 # Implementation plan from the current checkpoint
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 _Date: 2026-08-17_
 
 ## Current proven checkpoint

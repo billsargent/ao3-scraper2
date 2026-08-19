@@ -180,9 +180,18 @@ export class TaskLeaseStore {
   }
 
   async pauseJob(jobId: number): Promise<void> {
-    await this.db.update(collectionJobs).set({ status: "paused", updatedAt: new Date() }).where(and(
-      eq(collectionJobs.id, jobId), inArray(collectionJobs.status, ["queued", "running"]),
-    ));
+    const now = new Date();
+    await this.db.transaction(async (tx) => {
+      const job = (await tx.select({ planningStatus: collectionJobs.planningStatus }).from(collectionJobs)
+        .where(and(eq(collectionJobs.id, jobId), inArray(collectionJobs.status, ["queued", "running"]))).limit(1).for("update"))[0];
+      if (!job) return;
+      await tx.update(collectionJobs).set({ status: "paused", updatedAt: now }).where(eq(collectionJobs.id, jobId));
+      if (job.planningStatus === "leased" || job.planningStatus === "planning") {
+        await tx.update(collectionJobs).set({
+          planningStatus: "queued", planningLeaseToken: null, planningLeaseExpiresAt: null, updatedAt: now,
+        }).where(eq(collectionJobs.id, jobId));
+      }
+    });
   }
 
   async resumeJob(jobId: number): Promise<void> {

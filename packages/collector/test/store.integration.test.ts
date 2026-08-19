@@ -116,6 +116,17 @@ integration("CollectorStore with MariaDB", () => {
     expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, resumedJobId)))).toBe(6);
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, resumedJobId)))[0]!.discoveredCount).toBe(6);
 
+    const pausedJobId = await store.createIdRangeJob(sourceId, { start: 450, end: 453, batchSize: 2 });
+    const pausedClaim = await plannerQueue.claim("pause-test", 30_000);
+    expect(pausedClaim?.id).toBe(pausedJobId);
+    await plannerQueue.markPlanning(pausedJobId, pausedClaim!.leaseToken);
+    await leases.pauseJob(pausedJobId);
+    expect(await plannerQueue.enqueueBatch(pausedJobId, pausedClaim!.leaseToken, ["450"], 451, 30_000)).toBe(false);
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, pausedJobId)))[0]).toMatchObject({ status: "paused", planningStatus: "queued" });
+    await leases.resumeJob(pausedJobId);
+    expect(await planner.processOne()).toBe(true);
+    expect(firstCount(await db.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, pausedJobId)))).toBe(4);
+
     const cancelledJobId = await store.createIdRangeJob(sourceId, { start: 500, end: 999, batchSize: 100 });
     const cancelledClaim = await plannerQueue.claim("cancel-test", 30_000);
     expect(cancelledClaim?.id).toBe(cancelledJobId);

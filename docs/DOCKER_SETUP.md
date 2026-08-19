@@ -1,5 +1,11 @@
 # Beginner Docker setup guide
 
+> **Working directory:** Unless a section explicitly says otherwise, run commands from the `ao3-offsite-pipeline` repository root.
+>
+> ```bash
+> cd /path/to/ao3-offsite-pipeline
+> ```
+
 Docker is a development and testing convenience for this project. You do not need to understand Docker internals to run the provided commands.
 
 ## What Docker will run

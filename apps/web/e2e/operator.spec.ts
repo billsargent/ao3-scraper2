@@ -28,6 +28,7 @@ const works = Array.from({ length: 18 }, (_value, index) => ({
 
 async function mockApi(page: Page, requireToken = false) {
   let jobCreated = false;
+  let jobStatus: "queued" | "paused" | "cancelled" = "queued";
   await page.route("**/api/**", async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -41,8 +42,9 @@ async function mockApi(page: Page, requireToken = false) {
     if (url.pathname === "/api/sources" && request.method() === "GET") return json({ sources: [source] });
     if (url.pathname.startsWith("/api/sources/") && request.method() === "PUT") return json({ updated: true });
     if (url.pathname === "/api/jobs/id-range" && request.method() === "POST") { jobCreated = true; return json({ jobId: 42 }, 201); }
-    if (url.pathname.match(/^\/api\/jobs\/42\/(pause|resume|cancel)$/)) return json({ updated: true });
-    if (url.pathname === "/api/jobs") return json({ jobs: jobCreated ? [{ id: 42, sourceId: 1, type: "id_range", status: "queued", configuration: { start: 100, end: 105, batchSize: 250 }, planningStatus: "completed", planningCursor: 106, planningError: null, discoveredCount: 6, succeededCount: 0, failedCount: 0, skippedCount: 0, createdAt: "2026-08-17T12:00:00.000Z", startedAt: null, completedAt: null }] : [], limit: 100, offset: 0 });
+    const control = url.pathname.match(/^\/api\/jobs\/42\/(pause|resume|cancel)$/)?.[1];
+    if (control) { jobStatus = control === "pause" ? "paused" : control === "resume" ? "queued" : "cancelled"; return json({ updated: true }); }
+    if (url.pathname === "/api/jobs") return json({ jobs: jobCreated ? [{ id: 42, sourceId: 1, type: "id_range", status: jobStatus, configuration: { start: 100, end: 105, batchSize: 250 }, planningStatus: "completed", planningCursor: 106, planningError: null, discoveredCount: 6, succeededCount: 0, failedCount: 0, skippedCount: 0, createdAt: "2026-08-17T12:00:00.000Z", startedAt: null, completedAt: null }] : [], limit: 100, offset: 0 });
     if (url.pathname === "/api/failures") return json({ failures: [], total: 0 });
     if (url.pathname === "/api/exports") return request.method() === "POST" ? json({ id: 1, packageId: exportRecord.packageId }, 202) : json({ exports: [exportRecord], total: 1 });
     if (url.pathname === "/api/exports/1") return json({ export: exportRecord });
@@ -59,6 +61,9 @@ async function mockApi(page: Page, requireToken = false) {
     if (url.pathname === "/api/works/1") return json({ work: {
       ...works[0], sourceUrl: "https://archiveofourown.org/works/10000",
       summaryHtml: "<p>A preserved summary.</p>", notesHtml: "", endNotesHtml: "", contentHash: "sha256:test",
+      authors: [{ sourceAuthorId: "author-1", name: "Test Author", profileUrl: null, anonymous: false, orphaned: false, position: 1 }],
+      tags: [{ sourceTagId: "tag-1", type: "Fandom", name: "Harry Potter - J. K. Rowling", canonical: true, sourceUrl: null, position: 1 }, { sourceTagId: "tag-2", type: "Freeform", name: "Time Travel", canonical: true, sourceUrl: null, position: 2 }],
+      series: [{ sourceSeriesId: "series-1", name: "Test Series", sourceUrl: "https://archiveofourown.org/series/1", position: 1 }],
       chapters: [{ id: 11, sourceChapterId: "chapter-11", position: 1, title: "The first chapter", wordCount: 1000, contentHash: "sha256:chapter" }],
     } });
     if (url.pathname === "/api/works/1/chapters/11") return json({ chapter: {
@@ -80,6 +85,9 @@ test("library is a paginated list and opens the offline reader", async ({ page }
   await page.getByRole("button", { name: "View", exact: true }).first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Harry Potter meets Harry Potter" })).toBeVisible();
+  await expect(page.getByText("Test Author")).toBeVisible();
+  await expect(page.getByText("Harry Potter - J. K. Rowling")).toBeVisible();
+  await expect(page.getByText("Time Travel")).toBeVisible();
   await expect(page.getByText("This chapter is readable completely offline.")).toBeVisible();
   await expect(page.getByText("End note.")).toBeVisible();
   await page.getByRole("button", { name: "Close reader" }).click();
@@ -99,6 +107,8 @@ test("operator creates and controls a durable range job", async ({ page }) => {
   await page.getByRole("button", { name: "Create durable job" }).click();
   await expect(page.getByText("#42")).toBeVisible();
   await expect(page.getByText("100–105")).toBeVisible();
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
 });
 
@@ -111,6 +121,20 @@ test("source settings expose Browser ID and granular policy", async ({ page }) =
   await expect(page.getByLabel("Maximum response (MB)")).toHaveValue("20");
   await expect(page.getByLabel("Request timeout (seconds)")).toHaveValue("60");
   await expect(page.getByText("Collection paused")).toBeVisible();
+});
+
+test("source validation errors show the field and explanation", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/sources/1", async (route) => route.fulfill({
+    status: 400,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "validation_error", issues: [{ path: ["userAgent"], message: "Browser ID is required" }] }),
+  }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Source settings" }).click();
+  await page.getByLabel("Browser ID / User-Agent").fill("x");
+  await page.getByRole("button", { name: "Save & pause" }).click();
+  await expect(page.getByText("userAgent: Browser ID is required")).toBeVisible();
 });
 
 test("transfer package inspector verifies, downloads, and tracks OTW import", async ({ page }) => {
