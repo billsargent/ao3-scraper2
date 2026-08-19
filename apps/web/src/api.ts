@@ -128,6 +128,32 @@ export interface ChapterDetail extends ChapterSummary {
 
 const TOKEN_KEY = "archive-relay-api-token";
 
+export interface DebugEntry {
+  id: number;
+  timestamp: string;
+  method: string;
+  path: string;
+  status: number | null;
+  durationMs: number;
+  outcome: "success" | "error" | "network_error";
+  message: string;
+  requestId?: string;
+  issues?: ApiValidationIssue[];
+}
+
+let nextDebugId = 1;
+let debugEntries: DebugEntry[] = [];
+const debugListeners = new Set<() => void>();
+
+function recordDebug(entry: Omit<DebugEntry, "id" | "timestamp">) {
+  debugEntries = [{ id: nextDebugId++, timestamp: new Date().toISOString(), ...entry }, ...debugEntries].slice(0, 200);
+  debugListeners.forEach((listener) => listener());
+}
+
+export function getDebugEntries(): DebugEntry[] { return debugEntries; }
+export function subscribeDebug(listener: () => void): () => void { debugListeners.add(listener); return () => debugListeners.delete(listener); }
+export function clearDebugEntries(): void { debugEntries = []; debugListeners.forEach((listener) => listener()); }
+
 export interface ApiValidationIssue {
   path?: Array<string | number>;
   message?: string;
@@ -179,19 +205,31 @@ export async function streamEvents(
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getApiToken();
-  const response = await fetch(path, {
-    ...options,
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...options?.headers },
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => null) as { error?: string; issues?: ApiValidationIssue[]; message?: string } | null;
-    const issues = data?.issues ?? [];
-    const detailedMessage = issues.length
-      ? issues.map((issue) => `${issue.path?.join(".") || "value"}: ${issue.message || "is invalid"}`).join("; ")
-      : data?.message ?? data?.error ?? `Request failed with HTTP ${response.status}`;
-    throw new ApiError(detailedMessage, response.status, issues);
+  const method = options?.method ?? "GET";
+  const startedAt = performance.now();
+  try {
+    const response = await fetch(path, {
+      ...options,
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...options?.headers },
+    });
+    const durationMs = Math.round(performance.now() - startedAt);
+    if (!response.ok) {
+      const data = await response.json().catch(() => null) as { error?: string; issues?: ApiValidationIssue[]; message?: string; requestId?: string } | null;
+      const issues = data?.issues ?? [];
+      const detailedMessage = issues.length
+        ? issues.map((issue) => `${issue.path?.join(".") || "value"}: ${issue.message || "is invalid"}`).join("; ")
+        : data?.message ?? data?.error ?? `Request failed with HTTP ${response.status}`;
+      recordDebug({ method, path, status: response.status, durationMs, outcome: "error", message: detailedMessage, issues, ...(data?.requestId ? { requestId: data.requestId } : {}) });
+      throw new ApiError(detailedMessage, response.status, issues);
+    }
+    recordDebug({ method, path, status: response.status, durationMs, outcome: "success", message: "Request completed" });
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    recordDebug({ method, path, status: null, durationMs: Math.round(performance.now() - startedAt), outcome: "network_error", message });
+    throw new ApiError(message, 0);
   }
-  return response.json() as Promise<T>;
 }
 
 export const api = {

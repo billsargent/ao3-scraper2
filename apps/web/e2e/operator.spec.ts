@@ -135,6 +135,9 @@ test("source validation errors show the field and explanation", async ({ page })
   await page.getByLabel("Browser ID / User-Agent").fill("x");
   await page.getByRole("button", { name: "Save & pause" }).click();
   await expect(page.getByText("userAgent: Browser ID is required")).toBeVisible();
+  await page.getByRole("button", { name: "Debug log" }).click();
+  await expect(page.getByText("PUT").first()).toBeVisible();
+  await expect(page.getByText("userAgent: Browser ID is required").first()).toBeVisible();
 });
 
 test("transfer package inspector verifies, downloads, and tracks OTW import", async ({ page }) => {

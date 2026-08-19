@@ -55,10 +55,10 @@ const SourceCreateBody = z.object({
 }).and(SourcePolicy);
 const SourceBody = SourcePolicy.and(z.object({ paused: z.boolean() }));
 
-export interface ApiSecurityOptions { apiToken?: string }
+export interface ApiSecurityOptions { apiToken?: string; logger?: boolean }
 
 export function buildApp(services: ApiServices, security: ApiSecurityOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: security.logger ?? false });
   app.addHook("onRequest", async (request, reply) => {
     if (!security.apiToken || request.url === "/api/health/live") return;
     const authorization = request.headers.authorization;
@@ -67,13 +67,22 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
       return reply.status(401).send({ error: "unauthorized" });
     }
   });
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
-      void reply.status(400).send({ error: "validation_error", issues: error.issues });
+      void reply.status(400).send({
+        error: "validation_error",
+        message: "One or more fields are invalid.",
+        issues: error.issues,
+        requestId: request.id,
+      });
       return;
     }
-    app.log.error(error);
-    void reply.status(500).send({ error: "internal_error" });
+    request.log.error({ err: error, requestId: request.id }, "API request failed");
+    void reply.status(500).send({
+      error: "internal_error",
+      message: error instanceof Error && error.message ? error.message : "The server could not complete the request.",
+      requestId: request.id,
+    });
   });
 
   app.get("/api/health/live", async () => ({ status: "ok" }));

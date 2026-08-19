@@ -180,17 +180,19 @@ export class TaskLeaseStore {
   }
 
   async pauseJob(jobId: number): Promise<void> {
-    const now = new Date();
-    await this.db.transaction(async (tx) => {
-      const job = (await tx.select({ planningStatus: collectionJobs.planningStatus }).from(collectionJobs)
-        .where(and(eq(collectionJobs.id, jobId), inArray(collectionJobs.status, ["queued", "running"]))).limit(1).for("update"))[0];
-      if (!job) return;
-      await tx.update(collectionJobs).set({ status: "paused", updatedAt: now }).where(eq(collectionJobs.id, jobId));
-      if (job.planningStatus === "leased" || job.planningStatus === "planning") {
-        await tx.update(collectionJobs).set({
-          planningStatus: "queued", planningLeaseToken: null, planningLeaseExpiresAt: null, updatedAt: now,
-        }).where(eq(collectionJobs.id, jobId));
-      }
+    await withDatabaseRetry(async () => {
+      const now = new Date();
+      await this.db.transaction(async (tx) => {
+        const job = (await tx.select({ planningStatus: collectionJobs.planningStatus }).from(collectionJobs)
+          .where(and(eq(collectionJobs.id, jobId), inArray(collectionJobs.status, ["queued", "running"]))).limit(1).for("update"))[0];
+        if (!job) return;
+        await tx.update(collectionJobs).set({ status: "paused", updatedAt: now }).where(eq(collectionJobs.id, jobId));
+        if (job.planningStatus === "leased" || job.planningStatus === "planning") {
+          await tx.update(collectionJobs).set({
+            planningStatus: "queued", planningLeaseToken: null, planningLeaseExpiresAt: null, updatedAt: now,
+          }).where(eq(collectionJobs.id, jobId));
+        }
+      });
     });
   }
 
@@ -211,14 +213,16 @@ export class TaskLeaseStore {
   }
 
   async cancelJob(jobId: number): Promise<void> {
-    const now = new Date();
-    await this.db.transaction(async (tx) => {
-      await tx.update(collectionJobs).set({
-        status: "cancelled", planningStatus: "completed", planningLeaseToken: null,
-        planningLeaseExpiresAt: null, completedAt: now, updatedAt: now,
-      }).where(eq(collectionJobs.id, jobId));
-      await tx.update(collectionTasks).set({ status: "cancelled", leaseExpiresAt: null, leasedBy: null, updatedAt: now })
-        .where(and(eq(collectionTasks.jobId, jobId), inArray(collectionTasks.status, ["queued", "retryable_failed"])));
+    await withDatabaseRetry(async () => {
+      const now = new Date();
+      await this.db.transaction(async (tx) => {
+        await tx.update(collectionJobs).set({
+          status: "cancelled", planningStatus: "completed", planningLeaseToken: null,
+          planningLeaseExpiresAt: null, completedAt: now, updatedAt: now,
+        }).where(eq(collectionJobs.id, jobId));
+        await tx.update(collectionTasks).set({ status: "cancelled", leaseExpiresAt: null, leasedBy: null, updatedAt: now })
+          .where(and(eq(collectionTasks.jobId, jobId), inArray(collectionTasks.status, ["queued", "retryable_failed"])));
+      });
     });
   }
 
@@ -247,6 +251,30 @@ export class TaskLeaseStore {
       WHERE job.id = ${jobId}
     `);
   }
+}
+
+async function withDatabaseRetry<T>(operation: () => Promise<T>, maximumAttempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientLockError(error) || attempt === maximumAttempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 75));
+    }
+  }
+  throw lastError;
+}
+
+function isTransientLockError(error: unknown): boolean {
+  let candidate: unknown = error;
+  for (let depth = 0; depth < 4 && candidate && typeof candidate === "object"; depth += 1) {
+    const code = "code" in candidate ? String((candidate as { code?: unknown }).code ?? "") : "";
+    if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT", "1213", "1205"].includes(code)) return true;
+    candidate = "cause" in candidate ? (candidate as { cause?: unknown }).cause : null;
+  }
+  return false;
 }
 
 function affectedRows(result: unknown): number {

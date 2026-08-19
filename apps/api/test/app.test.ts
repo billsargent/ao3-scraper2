@@ -109,6 +109,16 @@ describe("Fastify control API", () => {
     expect(mock.updateImportStatusByPackage).toHaveBeenCalledWith(packageId, { status: "importing" });
   });
 
+  it("returns useful request IDs and messages for server errors", async () => {
+    const mock = services();
+    vi.mocked(mock.pauseJob).mockRejectedValue(new Error("database lock timeout"));
+    const app = buildApp(mock); apps.push(app);
+    const response = await app.inject({ method: "POST", url: "/api/jobs/7/pause" });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: "internal_error", message: "database lock timeout" });
+    expect(response.json().requestId).toBeTruthy();
+  });
+
   it("controls jobs and returns not found records", async () => {
     const mock = services(); const app = buildApp(mock); apps.push(app);
     expect((await app.inject({ method: "POST", url: "/api/jobs/7/pause" })).statusCode).toBe(200);

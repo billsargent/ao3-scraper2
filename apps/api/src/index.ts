@@ -17,7 +17,9 @@ const configuration = z.object({
 const { db, pool } = createDatabase(configuration.COLLECTOR_DATABASE_URL);
 const app = buildApp(
   new MariaDbApiServices(db, configuration.EXPORT_DIRECTORY),
-  configuration.API_TOKEN ? { apiToken: configuration.API_TOKEN } : {},
+  configuration.API_TOKEN
+    ? { apiToken: configuration.API_TOKEN, logger: true }
+    : { logger: true },
 );
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

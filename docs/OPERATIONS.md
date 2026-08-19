@@ -233,6 +233,25 @@ curl -X PUT http://127.0.0.1:3001/api/sources/1 \
   }'
 ```
 
+## Debug failed UI actions
+
+Open **Debug log** in the collector sidebar. It keeps the latest 200 browser-to-API requests and shows:
+
+- HTTP method and path
+- Status code
+- Duration
+- API message
+- Validation field issues
+- Server request ID
+
+Tokens and request bodies are not recorded. Use **Download JSON** when asking for support; the request ID can be matched with the API container log.
+
+Server logs:
+
+```bash
+bash scripts/all-services.sh logs collector
+```
+
 ## Job controls
 
 ```bash

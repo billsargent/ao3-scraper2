@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, setApiToken, streamEvents, type CollectionJob, type ExportRecord, type Source, type WorkDetail } from "./api.js";
+import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type Source, type WorkDetail } from "./api.js";
 
-type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings";
+type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings" | "debug";
 
 const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "dashboard", label: "Overview", icon: <Icon path="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" /> },
@@ -11,6 +11,7 @@ const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "exports", label: "Transfer packages", icon: <Icon path="M5 3h10l4 4v14H5V3Zm9 0v5h5M9 13h6m-6 4h6" /> },
   { id: "library", label: "Archive library", icon: <Icon path="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Zm0 15A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 18.5" /> },
   { id: "settings", label: "Source settings", icon: <Icon path="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 6a1.7 1.7 0 0 0 1.04-1.55V4.3h3v.15A1.7 1.7 0 0 0 15.74 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z" /> },
+  { id: "debug", label: "Debug log", icon: <Icon path="M8 9h8M8 13h5m-8 7 2-4a8 8 0 1 1 3 3l-5 1Z" /> },
 ];
 
 export default function App() {
@@ -49,6 +50,7 @@ export default function App() {
         {page === "exports" && <Exports source={source} />}
         {page === "library" && <Library />}
         {page === "settings" && <Settings source={source} />}
+        {page === "debug" && <DebugLog />}
       </div>
     </main>
   </div>;
@@ -295,6 +297,23 @@ function Settings({ source }: { source: Source | undefined }) {
     </div></Panel>
     <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source</dt><dd>{source.origin}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>{source.includeAdult ? "Allowed" : "Excluded"}</dd></div><div><dt>Daily bandwidth</dt><dd>{compactNumber(source.dailyByteBudget ?? 0)}B</dd></div><div><dt>Operating window</dt><dd>{source.operatingWindowStartHourUtc === null ? "Any time" : `${source.operatingWindowStartHourUtc}:00–${source.operatingWindowEndHourUtc}:00 UTC`}</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
   </div>;
+}
+
+function DebugLog() {
+  const entries = useSyncExternalStore(subscribeDebug, getDebugEntries, getDebugEntries);
+  const download = () => {
+    const blob = new Blob([JSON.stringify({ generatedAt: new Date().toISOString(), entries }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.download = `archive-relay-debug-${Date.now()}.json`; anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  };
+  return <>
+    <div className="page-actions"><div><h2>Debug log</h2><p>Recent browser-to-API requests. Tokens and request bodies are not recorded.</p></div><div className="row-actions"><button onClick={download} disabled={!entries.length}>Download JSON</button><button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button></div></div>
+    <Panel title={`${entries.length} recent requests`}>
+      {entries.length ? <div className="debug-list">{entries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div></article>)}</div> : <Empty title="No requests recorded" text="Use the interface; successes and failures will appear here." />}
+    </Panel>
+  </>;
 }
 
 function Unlock({ onUnlock }: { onUnlock: (token: string) => void }) {
