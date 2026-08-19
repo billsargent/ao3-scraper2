@@ -88,6 +88,49 @@ bash scripts/all-services.sh stop otw
 
 ---
 
+## Update from a downloaded ZIP
+
+Yes, you can normally extract a newer project ZIP over the existing project directory and rebuild. The MariaDB data is in a Docker volume, and raw responses/packages are in `DATA_DIR`, so replacing source files does not by itself erase them. However, take a backup first and preserve the hidden runtime configuration files.
+
+From the existing repository root:
+
+```bash
+npm run services:backup
+npm run services:stop
+```
+
+Keep copies of these files outside the directory before extracting:
+
+```text
+.env.production
+.env.otw-private
+.env                 # only if development mode is used
+```
+
+Also preserve any custom `DATA_DIR` located inside the project directory. Extract the ZIP so that its `package.json`, `apps`, `packages`, and `scripts` replace those paths directly—not into an extra nested `ao3-offsite-pipeline/ao3-offsite-pipeline` directory. Do not replace your runtime `.env*` files with the example files.
+
+To update and restart the collector:
+
+```bash
+npm run production:up
+```
+
+`production:up` rebuilds the collector images and the API applies collector database migrations automatically. It does **not** update the private OTW overlay. If the ZIP also contains OTW importer changes, run:
+
+```bash
+npm run otw:up
+```
+
+That command copies the current overlay into the separate OTW checkout, applies OTW migrations, and recreates its web service. Then verify:
+
+```bash
+npm run services:status
+```
+
+Hard-refresh the collector page. The sidebar's UI and API build IDs should match. When the download has no Git metadata, both display a `zip-<content-hash>` identifier instead of a commit hash. A ZIP copied over an old tree does not remove files that disappeared from the newer version; for a major or uncertain upgrade, a clean extraction beside the old directory is safer. Copy only the preserved `.env*` files into that clean tree, keep the same external `DATA_DIR`, and run the two update commands above.
+
+---
+
 ## Full destructive reset
 
 This deletes collector and OTW containers, database volumes, raw blobs, generated packages, and private OTW local storage. It does not delete source code, the saved validation dataset, backups, or environment files.

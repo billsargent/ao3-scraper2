@@ -56,13 +56,14 @@ Implemented:
 - Single- and multi-chapter live page-shape support
 - Passing TypeScript, MariaDB, and OTW/Rails integration tests
 
-Not yet implemented:
+Optional future work:
 
-- API live-event stream and detailed failure/export screens
-- API authentication and asynchronous large-range discovery/export jobs
-- Automated OTW package import-status tracking
-- Comments and embedded-asset capture
-- A production installer/upgrade strategy for the OTW fork
+- Production metrics, alerting, and scheduled restore drills
+- Comments and embedded-asset capture/import
+- A versioned public release and signed images after repository/registry ownership is chosen
+- Higher-resource OTW background indexing/search operation; the default low-memory private profile leaves Resque disabled
+
+For safe Git or downloaded-ZIP upgrades, including the separate collector and OTW update commands, see [Production deployment](docs/DEPLOYMENT.md#stop-or-update).
 
 ## Transfer package
 
@@ -111,7 +112,7 @@ Default source policy is now configurable and initially set to:
 - Adult-content interstitial acceptance enabled
 - One request at a time
 
-A real team contact address is still required before routine collector operation.
+The Browser ID/User-Agent is configurable and defaults to a standard Chrome identity. Review the complete source policy in the operator UI before enabling collection; new sources remain paused by default.
 
 ## Collector database
 

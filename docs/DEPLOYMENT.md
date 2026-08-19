@@ -71,14 +71,36 @@ docker compose --env-file .env.production -f compose.production.yml logs -f coll
 
 ## Stop or update
 
-```bash
-./scripts/production-down.sh
+### Git checkout
 
+```bash
+npm run production:backup
+./scripts/production-down.sh
 git pull
-./scripts/production-up.sh
+npm run production:up
 ```
 
-Take a backup before updating. Do not use `docker compose down -v`; it deletes MariaDB.
+### Downloaded ZIP
+
+An in-place ZIP update is supported for routine collector updates:
+
+1. Run `npm run production:backup`.
+2. Save `.env.production` separately. Save `.env.otw-private` too if private OTW is installed.
+3. Run `npm run production:down`.
+4. Extract the new ZIP directly over the project root. Confirm that `package.json` is still at the root rather than in a nested second directory.
+5. Keep the existing runtime `.env*` files; do not replace them with `env*.example`.
+6. Run `npm run production:up`.
+7. Hard-refresh the UI and confirm that its UI/API build IDs match. A source archive without Git metadata displays a matching `zip-<content-hash>` build ID instead of a commit hash.
+
+The collector database Docker volume and `DATA_DIR` survive a source-code overwrite. Nevertheless, preserve an in-project `DATA_DIR` explicitly and never use `docker compose down -v`, which deletes MariaDB. ZIP extraction does not remove obsolete files, so use a clean side-by-side extraction for major upgrades or whenever the release notes call for one.
+
+`production:up` rebuilds and migrates the **collector only**. To apply importer/private-OTW changes from the same ZIP, also run:
+
+```bash
+npm run otw:up
+```
+
+This reinstalls the overlay into the separately configured `OTW_DIR`, runs OTW migrations, and recreates the OTW web service without replacing its database volume.
 
 ## Network security
 
