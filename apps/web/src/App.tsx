@@ -132,9 +132,9 @@ function Jobs({ source }: { source: Source | undefined }) {
     <Panel title="All jobs">
       {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
         {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} /></td><td><Progress job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
-          {(job.status === "queued" || job.status === "running") && <button onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
-          {job.status === "paused" && <button onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
-          {!['completed','cancelled'].includes(job.status) && <button className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
+          {(job.status === "queued" || job.status === "running") && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
+          {job.status === "paused" && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
+          {!['completed','cancelled'].includes(job.status) && <button disabled={control.isPending} className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
         </div></td></tr>)}
       </tbody></table></div> : <Empty title="The queue is empty" text="Create a small job to begin collecting." />}
       {control.error && <p className="form-error">Job action failed: {control.error.message}</p>}
