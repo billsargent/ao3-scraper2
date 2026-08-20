@@ -196,6 +196,23 @@ integration("CollectorStore with MariaDB", () => {
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("running");
   });
 
+  it("counts not-found completions as skipped and never retries them", async () => {
+    const jobId = await store.createIdRangeJob(sourceId, { start: 300, end: 301, batchSize: 2 });
+    await store.enqueueWorkIds(jobId, ["300", "301"]);
+
+    const claimed = await leases.claim("worker-a", 2, 30_000);
+    expect(claimed).toHaveLength(2);
+    await leases.complete(claimed[0]!.taskId, claimed[0]!.leaseToken, { status: "succeeded" });
+    await leases.complete(claimed[1]!.taskId, claimed[1]!.leaseToken, { status: "not_found", code: "http_404", message: "not found" });
+
+    const job = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!;
+    expect(job).toMatchObject({ status: "completed", succeededCount: 1, failedCount: 0, skippedCount: 1 });
+
+    await leases.retryFailures(jobId);
+    const tasks = await db.select().from(collectionTasks).where(eq(collectionTasks.jobId, jobId));
+    expect(tasks.map((task) => task.status).sort()).toEqual(["not_found", "succeeded"]);
+  });
+
   it("reclaims expired leases and respects pause, resume, and cancel", async () => {
     const jobId = await store.createIdRangeJob(sourceId, { start: 200, end: 201, batchSize: 2 });
     await store.enqueueWorkIds(jobId, ["200", "201"]);

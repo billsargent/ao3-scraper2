@@ -35,6 +35,7 @@ export interface CapturedWorkStore {
 
 export type TaskOutcome =
   | { status: "succeeded"; localWorkId: number; contentHash: string; responseBytes: number }
+  | { status: "not_found"; code: string; message: string; responseBytes: number }
   | { status: "retryable_failed"; code: string; message: string; responseBytes: number }
   | { status: "terminal_failed"; code: string; message: string; responseBytes: number };
 
@@ -90,8 +91,9 @@ export class WorkTaskProcessor {
         contentHash: null,
       });
     }
+    const notFound = error.status === 404;
     return {
-      status: error.retryable ? "retryable_failed" : "terminal_failed",
+      status: notFound ? "not_found" : error.retryable ? "retryable_failed" : "terminal_failed",
       code: error.status ? `http_${error.status}` : "network_failed",
       message: error.message,
       responseBytes: 0,

@@ -28,6 +28,10 @@ function services(): ApiServices {
     getWork: vi.fn().mockResolvedValue(null),
     getChapter: vi.fn().mockResolvedValue(null),
     statistics: vi.fn().mockResolvedValue({ works: 0, words: 0, chapters: 0, authors: 0, activeJobs: 0, terminalFailures: 0 }),
+    getSettings: vi.fn().mockResolvedValue({ backupRetentionDays: null, defaultBatchSize: 250, timezone: "UTC" }),
+    updateSettings: vi.fn().mockResolvedValue({ backupRetentionDays: 30, defaultBatchSize: 250, timezone: "UTC" }),
+    getSystemInfo: vi.fn().mockResolvedValue({ dataDirectory: "./data", exportDirectory: "./data/exports" }),
+    listFetches: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   };
 }
 
@@ -58,6 +62,16 @@ describe("Fastify control API", () => {
     expect((await app.inject({ method: "GET", url: "/api/sources" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/sources", headers: { authorization: "Bearer wrong" } })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/sources", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
+  });
+  it("reads and updates system settings and lists AO3 fetches", async () => {
+    const app = buildApp(services()); apps.push(app);
+    const get = await app.inject({ method: "GET", url: "/api/settings" });
+    expect(get.statusCode).toBe(200);
+    expect(get.json()).toMatchObject({ settings: { backupRetentionDays: null, defaultBatchSize: 250 }, system: { dataDirectory: "./data", authEnabled: false } });
+    const put = await app.inject({ method: "PUT", url: "/api/settings", payload: { backupRetentionDays: 30 } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().settings.backupRetentionDays).toBe(30);
+    expect((await app.inject({ method: "GET", url: "/api/fetches" })).statusCode).toBe(200);
   });
 
   it("reports process and database health", async () => {

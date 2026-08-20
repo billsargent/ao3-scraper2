@@ -66,6 +66,8 @@ export class CollectorWorker {
     }
     if (outcome.status === "succeeded") {
       await this.leases.complete(task.taskId, task.leaseToken, { status: "succeeded" });
+    } else if (outcome.status === "not_found") {
+      await this.leases.complete(task.taskId, task.leaseToken, { status: "not_found", code: outcome.code, message: outcome.message });
     } else if (outcome.status === "terminal_failed") {
       await this.leases.complete(task.taskId, task.leaseToken, outcome);
     } else if ((task.source.maximumFailureAttempts ?? this.maximumFailureAttempts) > 0 && task.attempts >= (task.source.maximumFailureAttempts ?? this.maximumFailureAttempts)) {

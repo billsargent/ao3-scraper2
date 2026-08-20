@@ -27,6 +27,11 @@ const ImportStatusBody = z.object({
   error: z.string().max(5000).nullable().optional(),
   otwImportRunId: z.string().max(255).nullable().optional(),
 });
+const SettingsBody = z.object({
+  backupRetentionDays: z.number().int().nonnegative().nullable().optional(),
+  defaultBatchSize: z.number().int().min(1).max(1000).optional(),
+  timezone: z.string().min(1).max(64).optional(),
+});
 const IdRangeBody = z.object({
   sourceId: z.number().int().positive(),
   start: z.number().int().positive(),
@@ -178,6 +183,19 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     return updated ? { updated: true } : reply.status(404).send({ error: "not_found" });
   });
   app.get("/api/statistics", async () => ({ statistics: await services.statistics() }));
+  app.get("/api/settings", async () => ({
+    settings: await services.getSettings(),
+    system: { ...(await services.getSystemInfo()), authEnabled: Boolean(security.apiToken), appCommit: commit },
+  }));
+  app.put("/api/settings", async (request, reply) => {
+    const update = SettingsBody.parse(request.body);
+    return { settings: await services.updateSettings(update) };
+  });
+  app.get("/api/fetches", async (request) => {
+    const { limit, offset } = Pagination.parse(request.query);
+    const result = await services.listFetches(limit, offset);
+    return { fetches: result.items, total: result.total, limit, offset };
+  });
   app.post("/api/jobs/id-range", async (request, reply) => {
     const body = IdRangeBody.parse(request.body);
     const jobId = await services.createIdRangeJob(body.sourceId, {

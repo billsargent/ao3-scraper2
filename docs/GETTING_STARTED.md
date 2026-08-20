@@ -76,6 +76,7 @@ Open the Vite UI at `http://localhost:5173`; it proxies `/api` to the local API 
 
 ## Next
 
+- [Using the UI](USING_THE_UI.md) — the operator interface at a glance
 - [Operations](OPERATIONS.md) — sources, jobs, packages, monitoring, troubleshooting
 - [Deployment](DEPLOYMENT.md) — configuration, upgrades, security, releases
 - [Database](DATABASE.md) — schema and migration policy

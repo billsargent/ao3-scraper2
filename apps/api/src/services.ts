@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
 import {
@@ -10,6 +10,7 @@ import {
   collectionJobs,
   collectionTasks,
   exportRuns,
+  fetchSnapshots,
   series,
   seriesWorks,
   sourceDailyUsage,
@@ -46,6 +47,18 @@ export interface CollectorStatistics {
   terminalFailures: number;
 }
 
+export interface SystemSettings {
+  backupRetentionDays: number | null;
+  defaultBatchSize: number;
+  timezone: string;
+}
+
+export type SettingsUpdate = {
+  backupRetentionDays?: number | null | undefined;
+  defaultBatchSize?: number | undefined;
+  timezone?: string | undefined;
+};
+
 export interface ApiServices {
   ready(): Promise<boolean>;
   listSources(): Promise<unknown[]>;
@@ -70,6 +83,10 @@ export interface ApiServices {
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
   getWork(workId: number): Promise<unknown | null>;
   getChapter(workId: number, chapterId: number): Promise<unknown | null>;
+  getSettings(): Promise<SystemSettings>;
+  updateSettings(update: SettingsUpdate): Promise<SystemSettings>;
+  getSystemInfo(): Promise<{ dataDirectory: string; exportDirectory: string }>;
+  listFetches(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
   statistics(): Promise<CollectorStatistics>;
 }
 
@@ -105,6 +122,54 @@ export class MariaDbApiServices implements ApiServices {
         bytes: usageBySource.get(row.id)?.responseBytes ?? 0,
       },
     }));
+  }
+
+  private get settingsFile(): string {
+    return join(dirname(this.exportRoot), "system.json");
+  }
+
+  async getSettings(): Promise<SystemSettings> {
+    return readSystemSettings(this.settingsFile);
+  }
+
+  async updateSettings(update: SettingsUpdate): Promise<SystemSettings> {
+    const current = await readSystemSettings(this.settingsFile);
+    const next: SystemSettings = {
+      backupRetentionDays: update.backupRetentionDays !== undefined ? update.backupRetentionDays : current.backupRetentionDays,
+      defaultBatchSize: update.defaultBatchSize !== undefined ? update.defaultBatchSize : current.defaultBatchSize,
+      timezone: update.timezone !== undefined ? update.timezone : current.timezone,
+    };
+    await writeFile(this.settingsFile, JSON.stringify({ version: 1, ...next }, null, 2));
+    return next;
+  }
+
+  async getSystemInfo(): Promise<{ dataDirectory: string; exportDirectory: string }> {
+    return { dataDirectory: dirname(this.exportRoot), exportDirectory: this.exportRoot };
+  }
+
+  async listFetches(limit: number, offset: number): Promise<{ items: unknown[]; total: number }> {
+    const rows = await this.db.select({
+      id: fetchSnapshots.id,
+      sourceWorkId: fetchSnapshots.sourceWorkId,
+      url: fetchSnapshots.url,
+      httpStatus: fetchSnapshots.httpStatus,
+      fetchedAt: fetchSnapshots.fetchedAt,
+      parserVersion: fetchSnapshots.parserVersion,
+      responseHeaders: fetchSnapshots.responseHeaders,
+    }).from(fetchSnapshots).orderBy(desc(fetchSnapshots.fetchedAt)).limit(limit).offset(offset);
+    const totalRows = await this.db.select({ value: count() }).from(fetchSnapshots);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        sourceWorkId: row.sourceWorkId,
+        url: row.url,
+        httpStatus: row.httpStatus,
+        fetchedAt: row.fetchedAt,
+        parserVersion: row.parserVersion,
+        responseBytes: parseContentLength(row.responseHeaders),
+      })),
+      total: totalRows[0]?.value ?? 0,
+    };
   }
 
   async createSource(input: SourceCreate): Promise<number> {
@@ -343,6 +408,26 @@ export class MariaDbApiServices implements ApiServices {
       terminalFailures: Number(jobStats?.terminalFailures ?? 0),
     };
   }
+}
+
+async function readSystemSettings(path: string): Promise<SystemSettings> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<SystemSettings>;
+    return {
+      backupRetentionDays: typeof parsed.backupRetentionDays === "number" ? parsed.backupRetentionDays : null,
+      defaultBatchSize: typeof parsed.defaultBatchSize === "number" ? parsed.defaultBatchSize : 250,
+      timezone: typeof parsed.timezone === "string" && parsed.timezone ? parsed.timezone : (process.env.TZ ?? "UTC"),
+    };
+  } catch {
+    return { backupRetentionDays: null, defaultBatchSize: 250, timezone: process.env.TZ ?? "UTC" };
+  }
+}
+
+function parseContentLength(headers: Record<string, string>): number | null {
+  const value = headers["content-length"];
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function sha256File(path: string): Promise<string> {

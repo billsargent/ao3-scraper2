@@ -30,6 +30,7 @@ export interface ClaimedTask {
 
 export type Completion =
   | { status: "succeeded" }
+  | { status: "not_found"; code: string; message: string }
   | { status: "terminal_failed"; code: string; message: string }
   | { status: "retryable_failed"; code: string; message: string; availableAt: Date }
   | { status: "cancelled"; message?: string };
@@ -136,7 +137,7 @@ export class TaskLeaseStore {
       availableAt: completion.status === "retryable_failed" ? completion.availableAt : now,
       leaseExpiresAt: null,
       leasedBy: null,
-      lastErrorCode: completion.status === "terminal_failed" || completion.status === "retryable_failed" ? completion.code : null,
+      lastErrorCode: completion.status === "terminal_failed" || completion.status === "retryable_failed" || completion.status === "not_found" ? completion.code : null,
       lastErrorMessage: error && "message" in error ? error.message ?? null : null,
       updatedAt: now,
     }).where(and(
@@ -231,7 +232,7 @@ export class TaskLeaseStore {
       UPDATE collection_jobs AS job
       SET job.succeeded_count = (SELECT COUNT(*) FROM collection_tasks WHERE job_id = ${jobId} AND status = 'succeeded'),
           job.failed_count = (SELECT COUNT(*) FROM collection_tasks WHERE job_id = ${jobId} AND status = 'terminal_failed'),
-          job.skipped_count = (SELECT COUNT(*) FROM collection_tasks WHERE job_id = ${jobId} AND status = 'cancelled'),
+          job.skipped_count = (SELECT COUNT(*) FROM collection_tasks WHERE job_id = ${jobId} AND status IN ('cancelled', 'not_found')),
           job.status = CASE
             WHEN job.status = 'cancelled' THEN 'cancelled'
             WHEN NOT EXISTS (

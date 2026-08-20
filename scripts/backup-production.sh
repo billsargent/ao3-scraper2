@@ -30,7 +30,13 @@ META
 (cd "$PARTIAL" && sha256sum collector.sql.gz data.tar.gz metadata.txt > checksums.sha256)
 mv "$PARTIAL" "$FINAL"
 
-if [ -n "${BACKUP_RETENTION_DAYS:-}" ]; then
-  find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+${BACKUP_RETENTION_DAYS}" -exec rm -rf {} +
+# Backup retention: prefer the UI-managed setting in data/system.json, fall back
+# to the BACKUP_RETENTION_DAYS env var.
+RETENTION="${BACKUP_RETENTION_DAYS:-}"
+if [ -z "$RETENTION" ] && [ -f "$DATA_DIR/system.json" ]; then
+  RETENTION="$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(Number.isInteger(s.backupRetentionDays)&&s.backupRetentionDays>0?String(s.backupRetentionDays):"")' "$DATA_DIR/system.json" 2>/dev/null || true)"
+fi
+if [ -n "$RETENTION" ]; then
+  find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime "+$RETENTION" -exec rm -rf {} +
 fi
 printf 'Backup completed: %s\n' "$FINAL"

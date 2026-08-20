@@ -111,7 +111,7 @@ export const collectionTasks = mysqlTable("collection_tasks", {
   id: id(),
   jobId: foreignId("job_id").notNull().references(() => collectionJobs.id, { onDelete: "cascade" }),
   sourceWorkId: varchar("source_work_id", { length: 255 }).notNull(),
-  status: mysqlEnum("status", ["queued", "leased", "succeeded", "retryable_failed", "terminal_failed", "cancelled"]).notNull().default("queued"),
+  status: mysqlEnum("status", ["queued", "leased", "succeeded", "retryable_failed", "terminal_failed", "cancelled", "not_found"]).notNull().default("queued"),
   attempts: int("attempts", { unsigned: true }).notNull().default(0),
   availableAt: datetime("available_at", { mode: "date", fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
   leaseExpiresAt: datetime("lease_expires_at", { mode: "date", fsp: 3 }),

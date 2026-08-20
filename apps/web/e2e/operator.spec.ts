@@ -66,6 +66,10 @@ async function mockApi(page: Page, requireToken = false) {
       return json({ works: filtered.slice(offset, offset + limit), total: filtered.length, limit, offset });
     }
     if (url.pathname === "/api/statistics") return json({ statistics: { works: 18, words: 56250, chapters: 79, authors: 12, activeJobs: 0, terminalFailures: 0 } });
+    if (url.pathname === "/api/settings") return request.method() === "PUT"
+      ? json({ settings: { backupRetentionDays: 30, defaultBatchSize: 250, timezone: "UTC" } })
+      : json({ settings: { backupRetentionDays: null, defaultBatchSize: 250, timezone: "UTC" }, system: { dataDirectory: "/data", exportDirectory: "/data/exports", authEnabled: false, appCommit: "api-test" } });
+    if (url.pathname === "/api/fetches") return json({ fetches: [{ id: 1, sourceWorkId: "10000", url: "https://archiveofourown.org/works/10000", httpStatus: 200, fetchedAt: "2026-08-17T12:00:00.000Z", parserVersion: "v1", responseBytes: 4096 }], total: 1, limit: 25, offset: 0 });
     if (url.pathname === "/api/works/1") return json({ work: {
       ...works[0], sourceUrl: "https://archiveofourown.org/works/10000",
       summaryHtml: "<p>A preserved summary.</p>", notesHtml: "", endNotesHtml: "", contentHash: "sha256:test",

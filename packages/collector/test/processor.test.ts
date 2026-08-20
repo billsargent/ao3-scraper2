@@ -54,7 +54,7 @@ describe("WorkTaskProcessor", () => {
     );
 
     await expect(processor.process("999")).resolves.toEqual({
-      status: "terminal_failed", code: "http_404", message: "not found", responseBytes: 0,
+      status: "not_found", code: "http_404", message: "not found", responseBytes: 0,
     });
     expect(store.persistAvailability).toHaveBeenCalledWith(1, expect.objectContaining({ availability: "not_found", httpStatus: 404 }));
     expect(blobs.putHtml).not.toHaveBeenCalled();

@@ -163,17 +163,20 @@ function Jobs({ source }: { source: Source | undefined }) {
 
 function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
   const client = useQueryClient();
+  const system = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const [start, setStart] = useState(1);
   const [end, setEnd] = useState(10);
+  const [batchSize, setBatchSize] = useState<number | null>(null);
+  const effectiveBatchSize = batchSize ?? system.data?.settings.defaultBatchSize ?? 250;
   const mutation = useMutation({
-    mutationFn: () => api.createJob({ sourceId: source.id, start, end, batchSize: 250 }),
+    mutationFn: () => api.createJob({ sourceId: source.id, start, end, batchSize: effectiveBatchSize }),
     onSuccess: async () => { await client.invalidateQueries({ queryKey: ["jobs"] }); onClose(); },
   });
   const count = Math.max(0, end - start + 1);
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="modal" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
     <div className="modal-head"><div><p className="eyebrow accent">NEW COLLECTION</p><h2>ID range job</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
     <p className="muted">Tasks are created durably. The source is currently <b>{source.paused ? "paused" : "enabled"}</b>, with a {source.minimumDelayMs / 1000}-second minimum delay.</p>
-    <div className="form-grid"><label>Starting work ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label><label>Ending work ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label></div>
+    <div className="form-grid"><label>Starting work ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label><label>Ending work ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label><label>Batch size<input type="number" min="1" max="1000" value={effectiveBatchSize} onChange={(e) => setBatchSize(Number(e.target.value))} /></label></div>
     <div className="estimate"><span>{formatNumber(count)} tasks</span><span>≈ {duration(count * source.minimumDelayMs)}</span></div>
     {count > 10_000_000 && <p className="muted">A single job covers at most 10,000,000 IDs. High work IDs like AO3's current ~91M are supported — start closer to them (e.g. start near 90,800,000) or create multiple jobs.</p>}
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
@@ -308,6 +311,24 @@ function Settings({ source }: { source: Source | undefined }) {
     operatingWindowEndHourUtc: windowEnabled ? windowEnd : null, paused,
   }) : Promise.reject(new Error("No source")), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
   const create = useMutation({ mutationFn: () => api.createSource({ key: "ao3", origin: "https://archiveofourown.org" }), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
+  const system = useQuery({ queryKey: ["settings"], queryFn: api.settings, refetchInterval: 60_000 });
+  const [backupRetention, setBackupRetention] = useState("");
+  const [defaultBatch, setDefaultBatch] = useState("250");
+  const [timezone, setTimezone] = useState("");
+  useEffect(() => {
+    if (!system.data) return;
+    setBackupRetention(system.data.settings.backupRetentionDays?.toString() ?? "");
+    setDefaultBatch(system.data.settings.defaultBatchSize.toString());
+    setTimezone(system.data.settings.timezone);
+  }, [system.data]);
+  const saveSystem = useMutation({
+    mutationFn: () => api.updateSettings({
+      backupRetentionDays: backupRetention.trim() === "" ? null : Number(backupRetention),
+      defaultBatchSize: Math.max(1, Number(defaultBatch) || 250),
+      timezone: timezone.trim() || undefined,
+    }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }),
+  });
   if (!source) return <Panel title="Create source"><div className="settings-empty"><div className="large-icon"><Icon path="M12 3v18m9-9H3" /></div><h2>No collection source configured</h2><p>AO3 will be created paused with a standard Chrome browser identity, 10-second delay, and 250-request daily budget.</p><button className="primary" onClick={() => create.mutate()}>{create.isPending ? "Creating…" : "Create paused AO3 source"}</button></div></Panel>;
   return <div className="settings-layout">
     <Panel title="Source policy"><div className="settings-form">
@@ -317,11 +338,28 @@ function Settings({ source }: { source: Source | undefined }) {
       <div className="policy-callout"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><p><b>Distributed safety boundary</b><span>Delay, request, bandwidth, and schedule controls are enforced transactionally across every worker.</span></p></div><div className="settings-actions"><button className="secondary" onClick={() => update.mutate(true)}>Save & pause</button><button className={source.paused ? "primary" : "danger-button"} onClick={() => update.mutate(!source.paused)}>{source.paused ? "Enable collection" : "Pause immediately"}</button></div>{update.error && <p className="form-error">{update.error.message}</p>}
     </div></Panel>
     <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source</dt><dd>{source.origin}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>{source.includeAdult ? "Allowed" : "Excluded"}</dd></div><div><dt>Daily bandwidth</dt><dd>{compactNumber(source.dailyByteBudget ?? 0)}B</dd></div><div><dt>Operating window</dt><dd>{source.operatingWindowStartHourUtc === null ? "Any time" : `${source.operatingWindowStartHourUtc}:00–${source.operatingWindowEndHourUtc}:00 UTC`}</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>
+    <Panel title="System settings"><div className="settings-form">
+      <div className="settings-section"><h3>Defaults and maintenance</h3><div className="form-grid">
+        <label>Backup retention (days)<input type="number" min="0" value={backupRetention} onChange={(e) => setBackupRetention(e.target.value)} /><small>Keep this many days of backups. Empty keeps everything.</small></label>
+        <label>Default job batch size<input type="number" min="1" max="1000" value={defaultBatch} onChange={(e) => setDefaultBatch(e.target.value)} /><small>Prefilled when creating a new collection job.</small></label>
+      </div><label>Timezone<input type="text" value={timezone} onChange={(e) => setTimezone(e.target.value)} /><small>Used for server-side timestamps and backup stamps.</small></label></div>
+      <div className="settings-section"><h3>Installation</h3><dl className="artifact-list">
+        <div><dt>App version</dt><dd>{system.data?.system.appCommit ?? "—"}</dd></div>
+        <div><dt>Authentication</dt><dd>{system.data?.system.authEnabled ? "Token required" : "Open (no token)"}</dd></div>
+        <div><dt>Data directory</dt><dd>{system.data?.system.dataDirectory ?? "—"}</dd></div>
+        <div><dt>Export directory</dt><dd>{system.data?.system.exportDirectory ?? "—"}</dd></div>
+      </dl></div>
+      <div className="settings-actions"><button className="primary" disabled={saveSystem.isPending} onClick={() => saveSystem.mutate()}>{saveSystem.isPending ? "Saving…" : "Save system settings"}</button></div>
+      {saveSystem.error && <p className="form-error">{saveSystem.error.message}</p>}
+    </div></Panel>
   </div>;
 }
 
 function DebugLog() {
   const entries = useSyncExternalStore(subscribeDebug, getDebugEntries, getDebugEntries);
+  const [view, setView] = useState<"api" | "fetches">("api");
+  const fetchesQuery = useQuery({ queryKey: ["fetches", 0], queryFn: () => api.fetches(0, 25), refetchInterval: 5_000 });
+  const fetches = fetchesQuery.data?.fetches ?? [];
   const download = () => {
     const blob = new Blob([JSON.stringify({ generatedAt: new Date().toISOString(), entries }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -330,10 +368,12 @@ function DebugLog() {
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   };
   return <>
-    <div className="page-actions"><div><h2>Debug log</h2><p>Recent browser-to-API requests. Tokens and request bodies are not recorded.</p></div><div className="row-actions"><button onClick={download} disabled={!entries.length}>Download JSON</button><button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button></div></div>
-    <Panel title={`${entries.length} recent requests`}>
+    <div className="page-actions"><div><h2>Debug log</h2><p>{view === "api" ? "Recent browser-to-API requests. Tokens and request bodies are not recorded." : "Recent raw fetches made to the AO3 source, from stored fetch snapshots."}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button></div>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
+    {view === "api" ? <Panel title={`${entries.length} recent requests`}>
       {entries.length ? <div className="debug-list">{entries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div></article>)}</div> : <Empty title="No requests recorded" text="Use the interface; successes and failures will appear here." />}
-    </Panel>
+    </Panel> : <Panel title={`${fetchesQuery.data?.total ?? 0} recent AO3 fetches`}>
+      {fetches.length ? <div className="table-wrap"><table><thead><tr><th>Work</th><th>HTTP</th><th>Bytes</th><th>Parser</th><th>URL</th><th>Fetched</th></tr></thead><tbody>{fetches.map((fetch) => <tr key={fetch.id}><td><b>{fetch.sourceWorkId ? `AO3 #${fetch.sourceWorkId}` : "—"}</b></td><td><Status status={String(fetch.httpStatus)} /></td><td>{fetch.responseBytes ? formatBytes(fetch.responseBytes) : "—"}</td><td>{fetch.parserVersion ?? "—"}</td><td className="error-cell"><code>{fetch.url}</code></td><td>{formatDateTime(fetch.fetchedAt)}</td></tr>)}</tbody></table></div> : <Empty title="No AO3 fetches yet" text="Fetches appear here as the collector makes requests to the source." />}
+    </Panel>}
   </>;
 }
 

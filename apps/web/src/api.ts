@@ -245,6 +245,29 @@ export interface CollectorStatistics {
   terminalFailures: number;
 }
 
+export interface SystemSettings {
+  backupRetentionDays: number | null;
+  defaultBatchSize: number;
+  timezone: string;
+}
+
+export interface SystemInfo {
+  dataDirectory: string;
+  exportDirectory: string;
+  authEnabled: boolean;
+  appCommit: string;
+}
+
+export interface FetchSnapshot {
+  id: number;
+  sourceWorkId: string | null;
+  url: string;
+  httpStatus: number;
+  fetchedAt: string;
+  parserVersion: string | null;
+  responseBytes: number | null;
+}
+
 export const api = {
   health: () => request<{ status: string; commit: string }>("/api/health/ready"),
   statistics: () => request<{ statistics: CollectorStatistics }>("/api/statistics"),
@@ -277,6 +300,9 @@ export const api = {
     return { blob: await response.blob(), fileName, hash: response.headers.get("x-content-sha256") };
   },
   verifyExport: (id: number) => request<{ verified: boolean; archiveHash: string; currentHash: string; bytes: number }>(`/api/exports/${id}/verify`, { method: "POST" }),
+  settings: () => request<{ settings: SystemSettings; system: SystemInfo }>("/api/settings"),
+  updateSettings: (body: { backupRetentionDays?: number | null | undefined; defaultBatchSize?: number | undefined; timezone?: string | undefined }) => request<{ settings: SystemSettings }>("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
+  fetches: (page = 0, limit = 25) => request<{ fetches: FetchSnapshot[]; total: number; limit: number; offset: number }>(`/api/fetches?limit=${limit}&offset=${page * limit}`),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

@@ -3,6 +3,7 @@
 A private, offline pipeline that conservatively collects public AO3 work data and packages it for a self-hosted OTW Archive. The production runtime is a **single Docker container** running MariaDB, the Fastify API (which serves the React UI and `/api` on one port), and three workers.
 
 > New operator? Start with [Getting started](docs/GETTING_STARTED.md).
+> Using the interface? See [Using the UI](docs/USING_THE_UI.md).
 
 ## Quick start
 
