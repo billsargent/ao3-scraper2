@@ -148,8 +148,11 @@ function Jobs({ source }: { source: Source | undefined }) {
   const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 30_000 });
   const [showForm, setShowForm] = useState(false);
   const control = useMutation({ mutationFn: ({ id, action }: { id: number; action: "pause" | "resume" | "cancel" }) => api.controlJob(id, action), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
+  const remove = useMutation({ mutationFn: (id: number) => api.deleteJob(id), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
+  const clearCancelled = useMutation({ mutationFn: () => api.clearCancelledJobs(), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
+  const cancelledCount = jobs.data?.jobs.filter((job) => job.status === "cancelled").length ?? 0;
   return <>
-    <div className="page-actions"><div><h2>Durable collection queue</h2><p>Jobs survive worker and API restarts. Source limits apply across every worker.</p></div><button className="primary" disabled={!source} onClick={() => setShowForm(true)}><Icon path="M12 5v14M5 12h14" />New job</button></div>
+    <div className="page-actions"><div><h2>Durable collection queue</h2><p>Jobs survive worker and API restarts. Source limits apply across every worker.</p></div><div style={{ display: "flex", gap: 8 }}>{cancelledCount > 0 && <button className="danger-button" disabled={clearCancelled.isPending} onClick={() => { if (window.confirm(`Delete all ${cancelledCount} cancelled jobs and their tasks?`)) clearCancelled.mutate(); }}>Clear cancelled ({cancelledCount})</button>}<button className="primary" disabled={!source} onClick={() => setShowForm(true)}><Icon path="M12 5v14M5 12h14" />New job</button></div></div>
     {showForm && source && <JobForm source={source} onClose={() => setShowForm(false)} />}
     <Panel title="All jobs">
         {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Timing</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
@@ -157,9 +160,12 @@ function Jobs({ source }: { source: Source | undefined }) {
           {(job.status === "queued" || job.status === "running") && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button disabled={control.isPending} className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
+          {['completed','cancelled','failed'].includes(job.status) && <button className="danger" disabled={remove.isPending} onClick={() => { if (window.confirm(`Delete job #${job.id} and its tasks? This cannot be undone.`)) remove.mutate(job.id); }}>Delete</button>}
         </div></td></tr>)}
       </tbody></table></div> : <Empty title="The queue is empty" text="Create a small job to begin collecting." />}
       {control.error && <p className="form-error">Job action failed: {control.error.message}</p>}
+      {remove.error && <p className="form-error">Delete failed: {remove.error.message}</p>}
+      {clearCancelled.error && <p className="form-error">Clear cancelled failed: {clearCancelled.error.message}</p>}
     </Panel>
   </>;
 }

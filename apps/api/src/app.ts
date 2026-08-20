@@ -234,6 +234,14 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     await services.retryJobFailures(id);
     return { updated: true };
   });
+  app.delete("/api/jobs/:id", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const result = await services.deleteJob(id);
+    if (result === "not_found") return reply.status(404).send({ error: "not_found" });
+    if (result === "not_deletable") return reply.status(409).send({ error: "job_not_terminal", message: "Only completed, cancelled, or failed jobs can be deleted." });
+    return { deleted: true };
+  });
+  app.post("/api/jobs/clear-cancelled", async () => ({ deleted: await services.clearCancelledJobs() }));
   app.post("/api/exports", async (request, reply) => {
     const body = ExportBody.parse(request.body);
     const created = await services.createExport(body.sourceId, body.maximumWorks);

@@ -15,6 +15,8 @@ function services(): ApiServices {
     resumeJob: vi.fn().mockResolvedValue(undefined),
     cancelJob: vi.fn().mockResolvedValue(undefined),
     retryJobFailures: vi.fn().mockResolvedValue(undefined),
+    deleteJob: vi.fn().mockResolvedValue("deleted"),
+    clearCancelledJobs: vi.fn().mockResolvedValue(0),
     listFailures: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     createExport: vi.fn().mockResolvedValue({ id: 3, packageId: "00000000-0000-4000-8000-000000000003" }),
     listExports: vi.fn().mockResolvedValue({ items: [], total: 0 }),
@@ -168,6 +170,23 @@ describe("Fastify control API", () => {
     expect((await app.inject({ method: "GET", url: "/api/failures?limit=10&offset=0" })).json()).toMatchObject({ total: 0, failures: [] });
     expect((await app.inject({ method: "GET", url: "/api/jobs/999" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/api/works/999" })).statusCode).toBe(404);
+  });
+
+  it("deletes terminal jobs and clears cancelled jobs", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    expect((await app.inject({ method: "DELETE", url: "/api/jobs/7" })).statusCode).toBe(200);
+    expect(mock.deleteJob).toHaveBeenCalledWith(7);
+
+    vi.mocked(mock.deleteJob).mockResolvedValueOnce("not_found");
+    expect((await app.inject({ method: "DELETE", url: "/api/jobs/999" })).statusCode).toBe(404);
+
+    vi.mocked(mock.deleteJob).mockResolvedValueOnce("not_deletable");
+    const conflict = await app.inject({ method: "DELETE", url: "/api/jobs/8" });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({ error: "job_not_terminal" });
+
+    expect((await app.inject({ method: "POST", url: "/api/jobs/clear-cancelled" })).statusCode).toBe(200);
+    expect(mock.clearCancelledJobs).toHaveBeenCalled();
   });
 
   it("creates sources paused with conservative defaults", async () => {

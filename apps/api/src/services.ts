@@ -80,6 +80,8 @@ export interface ApiServices {
   resumeJob(jobId: number): Promise<void>;
   cancelJob(jobId: number): Promise<void>;
   retryJobFailures(jobId: number): Promise<void>;
+  deleteJob(jobId: number): Promise<"deleted" | "not_found" | "not_deletable">;
+  clearCancelledJobs(): Promise<number>;
   listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
   createExport(sourceId: number, maximumWorks: number): Promise<{ id: number; packageId: string }>;
   listExports(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
@@ -225,6 +227,18 @@ export class MariaDbApiServices implements ApiServices {
   resumeJob(jobId: number): Promise<void> { return this.leases.resumeJob(jobId); }
   cancelJob(jobId: number): Promise<void> { return this.leases.cancelJob(jobId); }
   retryJobFailures(jobId: number): Promise<void> { return this.leases.retryFailures(jobId); }
+
+  async deleteJob(jobId: number): Promise<"deleted" | "not_found" | "not_deletable"> {
+    const job = (await this.db.select({ status: collectionJobs.status }).from(collectionJobs).where(eq(collectionJobs.id, jobId)).limit(1))[0];
+    if (!job) return "not_found";
+    if (job.status !== "completed" && job.status !== "cancelled" && job.status !== "failed") return "not_deletable";
+    await this.db.delete(collectionJobs).where(eq(collectionJobs.id, jobId));
+    return "deleted";
+  }
+
+  async clearCancelledJobs(): Promise<number> {
+    return affectedRows(await this.db.delete(collectionJobs).where(eq(collectionJobs.status, "cancelled")));
+  }
 
   async listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }> {
     const failureStates = ["retryable_failed", "terminal_failed"] as const;

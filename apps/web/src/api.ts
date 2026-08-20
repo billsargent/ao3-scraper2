@@ -306,6 +306,8 @@ export const api = {
   }),
   controlJob: (id: number, action: "pause" | "resume" | "cancel") => request<{ updated: boolean }>(`/api/jobs/${id}/${action}`, { method: "POST" }),
   retryFailures: (id: number) => request<{ updated: boolean }>(`/api/jobs/${id}/retry-failures`, { method: "POST" }),
+  deleteJob: (id: number) => request<{ deleted: boolean }>(`/api/jobs/${id}`, { method: "DELETE" }),
+  clearCancelledJobs: () => request<{ deleted: number }>("/api/jobs/clear-cancelled", { method: "POST" }),
   failures: (page = 0, limit = 25) => request<{ failures: FailureRecord[]; total: number }>(`/api/failures?limit=${limit}&offset=${page * limit}`),
   exports: (page = 0, limit = 25) => request<{ exports: ExportRecord[]; total: number }>(`/api/exports?limit=${limit}&offset=${page * limit}`),
   createExport: (body: { sourceId: number; maximumWorks: number }) => request<{ id: number; packageId: string }>("/api/exports", { method: "POST", body: JSON.stringify(body) }),
