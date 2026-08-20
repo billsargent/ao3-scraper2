@@ -134,11 +134,14 @@ export class WorkTaskProcessor {
       const chapterIds = records.chapters
         .map((chapter) => chapter.sourceChapterId)
         .filter((id) => /^\d+$/.test(id));
+      const seenChapterUrls = new Set<string>();
       for (const chapterId of chapterIds) {
         if (maximumCommentPages !== null && commentPages >= maximumCommentPages) break;
         let pageUrl: string | null = new URL(`/works/${sourceWorkId}/chapters/${chapterId}`, this.source.origin).toString();
         while (pageUrl) {
           if (maximumCommentPages !== null && commentPages >= maximumCommentPages) break;
+          if (seenChapterUrls.has(pageUrl)) break;
+          seenChapterUrls.add(pageUrl);
           const fetched = await this.fetchSocialPage(pageUrl);
           if (!fetched) break;
           commentPages++;
@@ -152,8 +155,11 @@ export class WorkTaskProcessor {
     if (settings.captureKudos) {
       let pageUrl: string | null = new URL(`/works/${sourceWorkId}/kudos`, this.source.origin).toString();
       let kudosPages = 0;
+      const seenKudosUrls = new Set<string>();
       while (pageUrl) {
         if (maximumKudosPages !== null && kudosPages >= maximumKudosPages) break;
+        if (seenKudosUrls.has(pageUrl)) break;
+        seenKudosUrls.add(pageUrl);
         const fetched = await this.fetchSocialPage(pageUrl);
         if (!fetched) break;
         kudosPages++;
@@ -168,8 +174,11 @@ export class WorkTaskProcessor {
     if (settings.captureBookmarks) {
       let pageUrl: string | null = new URL(`/works/${sourceWorkId}/bookmarks`, this.source.origin).toString();
       let bookmarkPages = 0;
+      const seenBookmarkUrls = new Set<string>();
       while (pageUrl) {
         if (maximumBookmarkPages !== null && bookmarkPages >= maximumBookmarkPages) break;
+        if (seenBookmarkUrls.has(pageUrl)) break;
+        seenBookmarkUrls.add(pageUrl);
         const fetched = await this.fetchSocialPage(pageUrl);
         if (!fetched) break;
         bookmarkPages++;

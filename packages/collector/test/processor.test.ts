@@ -114,4 +114,30 @@ describe("WorkTaskProcessor", () => {
     expect(persisted.kudos.map((kudo) => kudo.sourceKudoId)).toEqual(["user:A", "user:B"]);
     expect(persisted.bookmarks).toEqual([expect.objectContaining({ sourceBookmarkId: "bookmark:12345:Bob" })]);
   });
+
+  it("stops social pagination when a listing page links back to itself", async () => {
+    const html = await readFile(fileURLToPath(fixtureUrl), "utf8");
+    const { fetcher, blobs, store } = dependencies();
+    fetcher.fetchText.mockImplementation(async (url: URL | string) => {
+      const parsed = new URL(url.toString());
+      if (parsed.pathname === "/works/12345") {
+        return { url: parsed.toString(), status: 200, body: html, fetchedAt: "2026-08-17T12:00:00.000Z", attempts: 1, responseHeaders: {} };
+      }
+      if (parsed.pathname.endsWith("/kudos")) {
+        return {
+          url: parsed.toString(), status: 200, fetchedAt: "2026-08-17T12:00:01.000Z", attempts: 1, responseHeaders: {},
+          body: `<div id="kudos"><a href="/users/A">A</a> left kudos!</div><ol class="pagination"><li class="next"><a rel="next" href="/works/12345/kudos">Next →</a></li></ol>`,
+        };
+      }
+      return { url: parsed.toString(), status: 200, body: "<html></html>", fetchedAt: "2026-08-17T12:00:02.000Z", attempts: 1, responseHeaders: {} };
+    });
+    const processor = new WorkTaskProcessor(
+      { id: 1, origin: "https://archiveofourown.org", includeAdult: true, captureKudos: true },
+      fetcher, blobs, store,
+    );
+
+    await expect(processor.process("12345")).resolves.toMatchObject({ status: "succeeded" });
+    const kudosFetches = fetcher.fetchText.mock.calls.filter(([input]) => new URL(input.toString()).pathname.endsWith("/kudos"));
+    expect(kudosFetches).toHaveLength(1);
+  });
 });

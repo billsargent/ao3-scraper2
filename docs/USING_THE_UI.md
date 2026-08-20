@@ -54,7 +54,7 @@ If you configured an `API_TOKEN` in `.env.production`, the UI first shows an **u
   - **Capture kudos** — records named kudos-givers. Guest kudos are count-only on AO3 and are not attributed.
   - **Capture bookmarks** — records public bookmarks, bookmarker notes, and bookmark tags.
 
-Captured social metadata is exported as first-class transfer records (`comments.jsonl`, `kudos.jsonl`, `bookmarks.jsonl`) in the same packages as works, chapters, tags, and series. Note that complete comment capture on long multi-chapter works requires one fetch per chapter; the page cap keeps that bounded, and the daily request budget still applies.
+Captured social metadata is exported as first-class transfer records (`comments.jsonl`, `kudos.jsonl`, `bookmarks.jsonl`) in the same packages as works, chapters, tags, and series. Note that complete comment capture on long multi-chapter works requires one fetch per chapter; the page cap keeps that bounded, and the daily request budget still applies. Re-captures add and update comments but never delete them — a comment that later vanishes from AO3 is preserved in your archive rather than removed.
 
 ## System settings
 
