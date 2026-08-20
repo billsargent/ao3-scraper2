@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-START=false; RUN_TESTS=true; WITH_OTW=false
+START=false; RUN_TESTS=true; WITH_OTW=false; NO_API_TOKEN=false
 for arg in "$@"; do
   case "$arg" in
     --start) START=true ;;
     --skip-tests) RUN_TESTS=false ;;
     --with-otw) WITH_OTW=true ;;
+    --no-api-token) NO_API_TOKEN=true ;;
     -h|--help)
-      echo "Usage: scripts/setup-all.sh [--start] [--skip-tests] [--with-otw]"; exit 0 ;;
+      echo "Usage: scripts/setup-all.sh [--start] [--skip-tests] [--with-otw] [--no-api-token]"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -28,7 +29,8 @@ if [ ! -f .env.production ] || grep -qE 'collector-db|^APP_UID=|^MARIADB_IMAGE='
   if [ -f .env.production ]; then
     echo "Regenerating .env.production for the single-container layout (old values detected)."
   fi
-  DB_ROOT="$(openssl rand -hex 24)"; DB_PASS="$(openssl rand -hex 24)"; API_TOKEN_VALUE="$(openssl rand -hex 32)"
+  DB_ROOT="$(openssl rand -hex 24)"; DB_PASS="$(openssl rand -hex 24)"
+  if $NO_API_TOKEN; then API_TOKEN_VALUE=""; else API_TOKEN_VALUE="$(openssl rand -hex 32)"; fi
   APP_COMMIT_VALUE="$(git rev-parse --short HEAD 2>/dev/null || echo development)"
   sed \
     -e "s/change-me-root-password/$DB_ROOT/g" \

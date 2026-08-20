@@ -4,6 +4,8 @@
 
 The collector is one Docker container. MariaDB is authoritative: restarting the container (or any supervised process inside it) does not lose jobs or progress.
 
+The API token is **optional**. Leave `API_TOKEN` empty in `.env.production` (or run `npm run setup -- --no-api-token`) to run with no authentication on a trusted network — the UI loads straight to the dashboard with no unlock screen. When a token is set, `/api` requires `Authorization: Bearer $API_TOKEN`. The curl examples below send the header regardless; it is harmless when no token is configured.
+
 ## Ports
 
 | Port | Mode | Service | Open it? |

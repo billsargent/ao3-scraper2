@@ -11,7 +11,7 @@ const configuration = z.object({
   COLLECTOR_DATABASE_URL: z.string().url(),
   API_HOST: z.string().default("127.0.0.1"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  API_TOKEN: z.string().min(32).optional(),
+  API_TOKEN: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.string().min(32).optional()),
   EXPORT_DIRECTORY: z.string().default(resolve(projectRoot, "data/exports"))
     .transform((value) => isAbsolute(value) ? value : resolve(projectRoot, value)),
 }).parse(process.env);

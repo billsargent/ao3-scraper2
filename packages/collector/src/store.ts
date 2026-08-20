@@ -60,15 +60,24 @@ export class CollectorStore {
     url: string;
     httpStatus: number;
     fetchedAt: Date;
-    bodyHash: string;
-    storageKey: string;
-    responseHeaders: Record<string, string>;
-    parserVersion?: string;
+    bodyHash?: string | null;
+    storageKey?: string | null;
+    responseHeaders?: Record<string, string>;
+    parserVersion?: string | null;
+    attempts?: number;
   }): Promise<void> {
     await this.db.insert(fetchSnapshots).values({
-      ...input,
+      sourceId: input.sourceId,
+      sourceWorkId: input.sourceWorkId,
+      url: input.url,
       urlHash: createHash("sha256").update(input.url).digest("hex"),
+      httpStatus: input.httpStatus,
+      fetchedAt: input.fetchedAt,
+      bodyHash: input.bodyHash ?? null,
+      storageKey: input.storageKey ?? null,
+      responseHeaders: input.responseHeaders ?? {},
       parserVersion: input.parserVersion ?? null,
+      attempts: input.attempts ?? 1,
     }).onDuplicateKeyUpdate({ set: { parserVersion: input.parserVersion ?? null } });
   }
 

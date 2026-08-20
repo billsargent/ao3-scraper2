@@ -35,7 +35,7 @@ npm run setup
 4. Builds the single collector Docker image.
 5. Starts the collector.
 
-Open `http://localhost:8080` and enter the `API_TOKEN` from `.env.production` at the unlock screen.
+Open `http://localhost:8080`. If you configured an `API_TOKEN` in `.env.production`, enter it at the unlock screen. For a trusted local-only deployment you can leave `API_TOKEN` empty (e.g. `npm run setup -- --no-api-token`) and the dashboard loads directly.
 
 > The collector source is created **paused**. Nothing is requested from AO3 until you create a job, review the source policy, and enable the source.
 

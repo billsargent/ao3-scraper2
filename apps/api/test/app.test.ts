@@ -63,6 +63,10 @@ describe("Fastify control API", () => {
     expect((await app.inject({ method: "GET", url: "/api/sources", headers: { authorization: "Bearer wrong" } })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/sources", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
   });
+  it("serves /api openly when no token is configured", async () => {
+    const app = buildApp(services()); apps.push(app);
+    expect((await app.inject({ method: "GET", url: "/api/sources" })).statusCode).toBe(200);
+  });
   it("reads and updates system settings and lists AO3 fetches", async () => {
     const app = buildApp(services()); apps.push(app);
     const get = await app.inject({ method: "GET", url: "/api/settings" });

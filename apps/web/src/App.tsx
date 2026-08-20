@@ -149,8 +149,8 @@ function Jobs({ source }: { source: Source | undefined }) {
     <div className="page-actions"><div><h2>Durable collection queue</h2><p>Jobs survive worker and API restarts. Source limits apply across every worker.</p></div><button className="primary" disabled={!source} onClick={() => setShowForm(true)}><Icon path="M12 5v14M5 12h14" />New job</button></div>
     {showForm && source && <JobForm source={source} onClose={() => setShowForm(false)} />}
     <Panel title="All jobs">
-      {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
-        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} /></td><td><Progress job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
+        {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Timing</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
+        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} /></td><td><Progress job={job} /></td><td><JobTiming job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
           {(job.status === "queued" || job.status === "running") && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button disabled={control.isPending} className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
@@ -372,7 +372,7 @@ function DebugLog() {
     {view === "api" ? <Panel title={`${entries.length} recent requests`}>
       {entries.length ? <div className="debug-list">{entries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div></article>)}</div> : <Empty title="No requests recorded" text="Use the interface; successes and failures will appear here." />}
     </Panel> : <Panel title={`${fetchesQuery.data?.total ?? 0} recent AO3 fetches`}>
-      {fetches.length ? <div className="table-wrap"><table><thead><tr><th>Work</th><th>HTTP</th><th>Bytes</th><th>Parser</th><th>URL</th><th>Fetched</th></tr></thead><tbody>{fetches.map((fetch) => <tr key={fetch.id}><td><b>{fetch.sourceWorkId ? `AO3 #${fetch.sourceWorkId}` : "—"}</b></td><td><Status status={String(fetch.httpStatus)} /></td><td>{fetch.responseBytes ? formatBytes(fetch.responseBytes) : "—"}</td><td>{fetch.parserVersion ?? "—"}</td><td className="error-cell"><code>{fetch.url}</code></td><td>{formatDateTime(fetch.fetchedAt)}</td></tr>)}</tbody></table></div> : <Empty title="No AO3 fetches yet" text="Fetches appear here as the collector makes requests to the source." />}
+      {fetches.length ? <div className="table-wrap"><table><thead><tr><th>Work</th><th>HTTP</th><th>Attempts</th><th>Bytes</th><th>Parser</th><th>URL</th><th>Fetched</th></tr></thead><tbody>{fetches.map((fetch) => <tr key={fetch.id}><td><b>{fetch.sourceWorkId ? `AO3 #${fetch.sourceWorkId}` : "—"}</b></td><td><Status status={String(fetch.httpStatus)} /></td><td>{fetch.attempts > 1 ? <span title="Retried after earlier failures">{fetch.attempts}</span> : "1"}</td><td>{fetch.responseBytes ? formatBytes(fetch.responseBytes) : "—"}</td><td>{fetch.parserVersion ?? "—"}</td><td className="error-cell"><code>{fetch.url}</code></td><td>{formatDateTime(fetch.fetchedAt)}</td></tr>)}</tbody></table></div> : <Empty title="No AO3 fetches yet" text="Fetches appear here as the collector makes requests to the source." />}
     </Panel>}
   </>;
 }
@@ -389,6 +389,29 @@ function Notice({ title, text, action }: { title: string; text: string; action: 
 function Safety({ label, value, good }: { label: string; value: string; good: boolean }) { return <div><span><i className={good ? "check" : "pause-icon"}>{good ? "✓" : "Ⅱ"}</i>{label}</span><b>{value}</b></div>; }
 function Status({ status }: { status: string }) { return <span className={`status ${status}`}>{status.replace("_", " ")}</span>; }
 function Progress({ job }: { job: CollectionJob }) { const done = job.succeededCount + job.failedCount + job.skippedCount; const percent = job.discoveredCount ? Math.round(done / job.discoveredCount * 100) : 0; return <div className="progress-cell"><div><span style={{ width: `${percent}%` }} /></div><small>{job.planningStatus !== "completed" ? `Planning · ${formatNumber(job.discoveredCount)} queued` : `${done}/${job.discoveredCount} · ${percent}%`}</small></div>; }
+function JobTiming({ job }: { job: CollectionJob }) {
+  const now = Date.now();
+  const startedAt = job.startedAt ? new Date(job.startedAt).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : now);
+  const finishedAt = job.completedAt ? new Date(job.completedAt).getTime() : (["completed", "failed", "cancelled"].includes(job.status) ? startedAt : now);
+  const elapsedMs = Math.max(0, finishedAt - startedAt);
+  const done = (job.succeededCount ?? 0) + (job.failedCount ?? 0) + (job.skippedCount ?? 0);
+  const total = job.discoveredCount ?? 0;
+  const remaining = Math.max(0, total - done);
+  const running = ["queued", "running"].includes(job.status);
+  const eta = running && job.planningStatus === "completed" && done > 0 && remaining > 0
+    ? ` · ~${formatDuration((elapsedMs / done) * remaining)} left`
+    : "";
+  return <div className="job-timing"><b>{formatDuration(elapsedMs)}</b><small>{running ? `${formatNumber(remaining)} remaining${eta}` : remaining > 0 ? "interrupted" : "—"}</small></div>;
+}
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
 function displayJobStatus(job: CollectionJob): string {
   if (job.planningStatus === "failed") return "planning_failed";
   if (job.planningStatus !== "completed") return "planning";

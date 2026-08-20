@@ -26,6 +26,7 @@ export class SourceRequestError extends Error {
     message: string,
     readonly retryable: boolean,
     readonly status: number | null = null,
+    readonly attempts: number = 1,
   ) {
     super(message);
     this.name = "SourceRequestError";
@@ -92,7 +93,7 @@ export class PoliteSourceClient {
           }
 
           const retryable = response.status === 429 || response.status === 503 || response.status >= 500;
-          lastError = new SourceRequestError(`Source returned HTTP ${response.status}`, retryable, response.status);
+          lastError = new SourceRequestError(`Source returned HTTP ${response.status}`, retryable, response.status, attempt);
           if (!retryable || attempt === this.maximumAttempts) throw lastError;
           await this.sleep(this.retryDelay(response, attempt));
         } catch (error) {
@@ -101,7 +102,7 @@ export class PoliteSourceClient {
             if (!error.retryable || attempt === this.maximumAttempts) throw error;
             lastError = error;
           } else {
-            lastError = new SourceRequestError(`Source request failed: ${String(error)}`, true);
+            lastError = new SourceRequestError(`Source request failed: ${String(error)}`, true, null, attempt);
             if (attempt === this.maximumAttempts) throw lastError;
             await this.sleep(this.exponentialDelay(attempt));
           }

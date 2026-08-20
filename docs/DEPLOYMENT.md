@@ -25,7 +25,7 @@ Edit every `change-me` value. `COLLECTOR_DATABASE_PASSWORD` must be URL-safe bec
 | `MARIADB_ROOT_PASSWORD` | Root password for the in-container MariaDB |
 | `COLLECTOR_DATABASE_NAME` / `_USER` / `_PASSWORD` | Collector database identity |
 | `COLLECTOR_DATABASE_URL` | Connection URL (points at `127.0.0.1:3306` inside the container) |
-| `API_TOKEN` | Bearer token for the API (also the UI unlock code) |
+| `API_TOKEN` | Bearer token for the API (also the UI unlock code). Optional — leave empty for a trusted local-only deployment with no authentication. |
 | `WEB_PORT` | Host port mapped to the container (default `8080`) |
 | `APP_VERSION` | Image tag / UI build label |
 | `DATA_DIR` | Host directory for blobs and exports |

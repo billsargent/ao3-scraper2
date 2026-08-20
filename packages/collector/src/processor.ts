@@ -24,10 +24,11 @@ export interface CapturedWorkStore {
     url: string;
     httpStatus: number;
     fetchedAt: Date;
-    bodyHash: string;
-    storageKey: string;
-    responseHeaders: Record<string, string>;
-    parserVersion?: string;
+    bodyHash?: string | null;
+    storageKey?: string | null;
+    responseHeaders?: Record<string, string>;
+    parserVersion?: string | null;
+    attempts?: number;
   }): Promise<void>;
   persistCapturedWork(sourceId: number, records: TransferRecords): Promise<number>;
   persistAvailability(sourceId: number, observation: Observation): Promise<void>;
@@ -68,19 +69,30 @@ export class WorkTaskProcessor {
         storageKey: blob.storageKey,
         responseHeaders: fetched.responseHeaders,
         parserVersion: PARSER_VERSION,
+        attempts: fetched.attempts,
       });
       const records = parseEntireWorkHtml(fetched.body, { sourceUrl: fetched.url, capturedAt: fetched.fetchedAt });
       const localWorkId = await this.store.persistCapturedWork(this.source.id, records);
       return { status: "succeeded", localWorkId, contentHash: records.works[0]!.contentHash, responseBytes };
     } catch (error) {
-      if (error instanceof SourceRequestError) return this.sourceFailure(sourceWorkId, error);
+      if (error instanceof SourceRequestError) return this.sourceFailure(sourceWorkId, url, error);
       if (error instanceof ParseError) return { status: "terminal_failed", code: "parse_failed", message: error.message, responseBytes };
       return { status: "retryable_failed", code: "unexpected", message: error instanceof Error ? error.message : String(error), responseBytes };
     }
   }
 
-  private async sourceFailure(sourceWorkId: string, error: SourceRequestError): Promise<TaskOutcome> {
+  private async sourceFailure(sourceWorkId: string, url: URL, error: SourceRequestError): Promise<TaskOutcome> {
     const availability = error.status === 404 ? "not_found" : error.status === 403 ? "restricted" : "unavailable";
+    // Record the failed fetch outcome (no raw body) so it is visible in the AO3
+    // fetches debug view alongside successful captures.
+    await this.store.recordSnapshot({
+      sourceId: this.source.id,
+      sourceWorkId,
+      url: url.toString(),
+      httpStatus: error.status ?? 0,
+      fetchedAt: new Date(),
+      attempts: error.attempts,
+    });
     if (error.status !== null) {
       await this.store.persistAvailability(this.source.id, {
         sourceWorkId,

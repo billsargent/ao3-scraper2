@@ -29,6 +29,7 @@ A private, offline preservation pipeline for AO3 fanworks ("Archive Relay"). It 
 - **Politeness defaults stay** (10s min delay, 250 req/day, paused-by-default) — they protect AO3, not hardware.
 - **MariaDB stays** (the lease/concurrency/crash-recovery model depends on it; no SQLite).
 - **Desktop-only / no Raspberry Pi**: amd64-only CI + release, no low-memory framing.
+- **API token is optional.** The API/UI run with no authentication when `API_TOKEN` is empty (trusted local-only deployments; see `--no-api-token` in `setup-all.sh`). Setting a token re-enables the unlock screen and bearer auth on `/api`.
 
 ## Documentation
 

@@ -13,7 +13,7 @@ npm run setup      # first-time: secrets, build, tests, image, start
 npm start          # start the collector afterwards
 ```
 
-Open `http://localhost:8080` and enter `API_TOKEN` from `.env.production` at the unlock screen.
+Open `http://localhost:8080` and, if you configured an `API_TOKEN`, enter it at the unlock screen. Leave `API_TOKEN` empty to skip authentication on a trusted local-only network.
 
 ## Everyday commands
 

@@ -266,6 +266,7 @@ export interface FetchSnapshot {
   fetchedAt: string;
   parserVersion: string | null;
   responseBytes: number | null;
+  attempts: number;
 }
 
 export const api = {

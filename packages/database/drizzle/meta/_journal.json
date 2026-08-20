@@ -78,6 +78,13 @@
       "when": 1787012345678,
       "tag": "0010_not_found_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1787100000000,
+      "tag": "0011_fetch_attempts",
+      "breakpoints": true
     }
   ]
 }

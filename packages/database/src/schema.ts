@@ -255,10 +255,11 @@ export const fetchSnapshots = mysqlTable("fetch_snapshots", {
   urlHash: char("url_hash", { length: 64 }).notNull(),
   httpStatus: int("http_status", { unsigned: true }).notNull(),
   fetchedAt: datetime("fetched_at", { mode: "date", fsp: 3 }).notNull(),
-  bodyHash: char("body_hash", { length: 71 }).notNull(),
-  storageKey: varchar("storage_key", { length: 1500 }).notNull(),
+  bodyHash: char("body_hash", { length: 71 }),
+  storageKey: varchar("storage_key", { length: 1500 }),
   responseHeaders: json("response_headers").$type<Record<string, string>>().notNull(),
   parserVersion: varchar("parser_version", { length: 100 }),
+  attempts: int("attempts", { unsigned: true }).notNull().default(1),
 }, (table) => [
   index("fetch_snapshots_work_time").on(table.sourceId, table.sourceWorkId, table.fetchedAt),
   uniqueIndex("fetch_snapshots_hash_url_unique").on(table.sourceId, table.urlHash, table.bodyHash),

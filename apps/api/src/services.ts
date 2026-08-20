@@ -156,6 +156,7 @@ export class MariaDbApiServices implements ApiServices {
       fetchedAt: fetchSnapshots.fetchedAt,
       parserVersion: fetchSnapshots.parserVersion,
       responseHeaders: fetchSnapshots.responseHeaders,
+      attempts: fetchSnapshots.attempts,
     }).from(fetchSnapshots).orderBy(desc(fetchSnapshots.fetchedAt)).limit(limit).offset(offset);
     const totalRows = await this.db.select({ value: count() }).from(fetchSnapshots);
     return {
@@ -167,6 +168,7 @@ export class MariaDbApiServices implements ApiServices {
         fetchedAt: row.fetchedAt,
         parserVersion: row.parserVersion,
         responseBytes: parseContentLength(row.responseHeaders),
+        attempts: row.attempts,
       })),
       total: totalRows[0]?.value ?? 0,
     };
