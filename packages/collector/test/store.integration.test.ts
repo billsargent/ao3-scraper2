@@ -116,6 +116,45 @@ integration("CollectorStore with MariaDB", () => {
     expect(new Set(taskIds)).toEqual(new Set(["1", "3"]));
   });
 
+  it("keeps a multi-task job running through mixed outcomes", async () => {
+    await db.update(sources).set({ minimumDelayMs: 0 }).where(eq(sources.id, sourceId));
+    const jobId = await store.createIdRangeJob(sourceId, { start: 1, end: 3, batchSize: 3 });
+    await store.enqueueWorkIds(jobId, ["1", "2", "3"]);
+    const outcomes = {
+      "1": { status: "not_found", code: "http_404", message: "gone", responseBytes: 0 },
+      "2": { status: "succeeded", localWorkId: 999, contentHash: `sha256:${"f".repeat(64)}`, responseBytes: 10 },
+      "3": { status: "not_found", code: "http_404", message: "gone", responseBytes: 0 },
+    } as const;
+    const worker = new CollectorWorker(leases, budgets, {
+      create(claimed) {
+        return { process: async (id: string) => outcomes[id as "1" | "2" | "3"]! };
+      },
+    }, { workerId: "integration-mixed" });
+
+    expect(await worker.processOne()).toBe(true);
+    expect(await worker.processOne()).toBe(true);
+    expect(await worker.processOne()).toBe(true);
+    const job = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!;
+    expect(job.status).toBe("completed");
+    expect(job.succeededCount).toBe(1);
+    expect(job.skippedCount).toBe(2);
+  }, 15_000);
+
+  it("self-heals a cancelled job that still has queued tasks", async () => {
+    await db.update(sources).set({ minimumDelayMs: 0 }).where(eq(sources.id, sourceId));
+    const jobId = await store.createIdRangeJob(sourceId, { start: 1, end: 2, batchSize: 2 });
+    await store.enqueueWorkIds(jobId, ["1", "2"]);
+
+    const claimed = await leases.claim("self-heal-worker", 1, 30_000);
+    expect(claimed).toHaveLength(1);
+    // Corrupt the state: cancel the job without cancelling its queued tasks.
+    await db.update(collectionJobs).set({ status: "cancelled" }).where(eq(collectionJobs.id, jobId));
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("cancelled");
+
+    await leases.complete(claimed[0]!.taskId, claimed[0]!.leaseToken, { status: "succeeded" });
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("running");
+  }, 15_000);
+
   it("plans large ID ranges asynchronously and resumes idempotently from a cursor", async () => {
     const plannerQueue = new JobPlannerStore(db);
     const planner = new JobPlannerWorker("integration-planner", plannerQueue, 30_000);

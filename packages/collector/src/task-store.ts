@@ -252,11 +252,15 @@ export class TaskLeaseStore {
           job.failed_count = (SELECT COUNT(*) FROM collection_tasks WHERE job_id = ${jobId} AND status = 'terminal_failed'),
           job.skipped_count = (SELECT COUNT(*) FROM collection_tasks WHERE job_id = ${jobId} AND status IN ('cancelled', 'not_found')),
           job.status = CASE
-            WHEN job.status = 'cancelled' THEN 'cancelled'
+            WHEN job.status = 'cancelled' AND NOT EXISTS (
+              SELECT 1 FROM collection_tasks
+              WHERE job_id = ${jobId} AND status IN ('queued', 'leased', 'retryable_failed')
+            ) THEN 'cancelled'
             WHEN NOT EXISTS (
               SELECT 1 FROM collection_tasks
               WHERE job_id = ${jobId} AND status IN ('queued', 'leased', 'retryable_failed')
             ) THEN 'completed'
+            WHEN job.status = 'cancelled' THEN 'running'
             ELSE job.status
           END,
           job.completed_at = CASE
@@ -264,7 +268,7 @@ export class TaskLeaseStore {
               SELECT 1 FROM collection_tasks
               WHERE job_id = ${jobId} AND status IN ('queued', 'leased', 'retryable_failed')
             ) THEN ${now}
-            ELSE job.completed_at
+            ELSE NULL
           END,
           job.updated_at = ${now}
       WHERE job.id = ${jobId}
