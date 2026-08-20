@@ -56,6 +56,7 @@ async function mockApi(page: Page, requireToken = false) {
     if (url.pathname === "/api/exports/1") return json({ export: exportRecord });
     if (url.pathname === "/api/exports/1/manifest") return json({ manifest: { packageId: exportRecord.packageId, packageType: "snapshot", createdAt: exportRecord.createdAt, records: { works: 18, chapters: 79, tags: 203 } }, checksums: "abc  works.jsonl\n", archiveHash: exportRecord.archiveHash, archiveBytes: exportRecord.archiveBytes, verifiedAt: exportRecord.verifiedAt });
     if (url.pathname === "/api/exports/1/import-status") return json({ updated: true });
+    if (url.pathname === "/api/exports/1/verify") return json({ verified: true, archiveHash: exportRecord.archiveHash, currentHash: exportRecord.archiveHash, bytes: 4096 });
     if (url.pathname === "/api/exports/1/download") return route.fulfill({ status: 200, contentType: "application/gzip", headers: { "content-disposition": 'attachment; filename="package-1.tar.gz"', "x-content-sha256": exportRecord.archiveHash }, body: "fake-gzip" });
     if (url.pathname === "/api/works") {
       const offset = Number(url.searchParams.get("offset") ?? 0);
@@ -160,6 +161,8 @@ test("transfer package inspector verifies, downloads, and tracks OTW import", as
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download .tar.gz" }).click();
   expect((await downloadPromise).suggestedFilename()).toBe("package-1.tar.gz");
+  await page.getByRole("button", { name: "Re-verify package" }).click();
+  await expect(page.getByText("On-disk SHA-256 matches the recorded hash")).toBeVisible();
   await page.getByRole("button", { name: "Mark imported" }).click();
 });
 

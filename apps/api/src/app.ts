@@ -240,6 +240,11 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     reply.header("x-content-sha256", artifact.hash);
     return reply.send(createReadStream(artifact.path));
   });
+  app.post("/api/exports/:id/verify", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const result = await services.verifyExport(id);
+    return result ? result : reply.status(404).send({ error: "not_found" });
+  });
   app.patch("/api/exports/:id/import-status", async (request, reply) => {
     const { id } = IdParams.parse(request.params);
     const updated = await services.updateImportStatus(id, ImportStatusBody.parse(request.body));

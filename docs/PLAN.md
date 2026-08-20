@@ -68,26 +68,22 @@ first. The project is now migrating to WSL2/Ubuntu.
 
 - **Committed + pushed**: branch `main`, commit `eecd81c` on top of full history.
   Remote `origin` = `https://github.com/billsargent/ao3-scraper2.git`.
-- **Verified**: `npm run check` (37 tests pass; 9 MariaDB-integration tests skip
-  without a DB), `npm run web:build`, `bash -n` on all 20 shell scripts, docs
-  links + env sync, YAML parse of compose + workflows.
-- **Working tree**: 19 shell scripts show mode-only `M` on Windows (exec-bit
-  artifact) — harmless; they are committed as `100755` and clean on Linux/WSL.
+- **WSL migration + verification COMPLETE (2026-08-20)** — see AGENTS.md
+  "Migration-to-WSL status". All previously-unverified items are now verified
+  live: image build, container start + health, UI unlock, high-ID job through
+  the workers, a verified `.tar.gz` export, backup/restore drill, MariaDB
+  integration tests, and Playwright e2e. `npm run check` = 46 tests (37 unit +
+  9 integration when `COLLECTOR_DATABASE_URL` is set); `npm run test:e2e` = 6.
+- **Local `main` has one extra commit** beyond `origin/main` (`3e09865`):
+  `36d57dd` "Fix container/backup bugs from WSL verification; add statistics +
+  dashboard safety features". Check whether it has been pushed.
+- **Bugs fixed during verification**: `init-mariadb.sh` socket arg; API auth
+  hook blocking the static UI; `supervisord.conf` running node processes as
+  root (now `user=node`); `backup-production.sh` compose-exec stdin hang.
+- **Features added**: `GET /api/statistics`, `POST /api/exports/:id/verify`,
+  per-source `todayUsage` + dashboard pause/resume kill-switch.
 
 ## Remaining work (next session)
-
-### A. Finish the WSL migration (on the Ubuntu box / Remote-WSL)
-1. Install **nvm + Node 20** (no sudo): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash` then `nvm install 20`. Watch the Windows npm shim in the WSL PATH.
-2. Install **Docker** — decision pending: native `sudo apt install docker.io docker-compose-v2` (fits the Linux move) vs Docker Desktop WSL2 backend. Add user to `docker` group.
-3. `git clone https://github.com/billsargent/ao3-scraper2.git` and `npm install`.
-4. `npm run setup` (generates `.env.production`, builds the image, runs tests, starts the container).
-
-### B. Post-setup verification (needs Docker, not run yet)
-1. `npm start`; check `curl localhost:8080/healthz` = 200 and `/api/health/ready`.
-2. Unlock the UI with `API_TOKEN`, create a source + a small high-ID job (e.g. start ~90,8xx,xxx), confirm planner/collector/export workers process it, and export a verified `.tar.gz`.
-3. `npm run backup` then a destructive restore drill into a fresh volume (this is also the existing-data migration path).
-4. MariaDB integration tests: `npm test -- --run packages/collector/test/store.integration.test.ts`.
-5. Playwright: `npx playwright install --with-deps chromium && npm run test:e2e`.
 
 ### C. Optional future (not this session)
 - Enable the OTW Archive later via `npm run setup -- --with-otw` + `scripts/otw-private-*.sh` (see `docs/OTW_ARCHIVE.md`).

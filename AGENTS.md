@@ -36,14 +36,16 @@ README.md + `docs/{GETTING_STARTED,OPERATIONS,DEPLOYMENT,DATABASE,BACKUP_RESTORE
 
 ## Repo / status
 
-- Remote: `origin` = `https://github.com/billsargent/ao3-scraper2.git`, branch `main`. Pushed 2026-08-19 (commit `eecd81c`); full history preserved; one rework commit on top.
-- Verified so far: `npm run check` (37 tests pass; 9 MariaDB-integration tests skip without a DB), `web:build`, `bash -n` on all scripts, docs links/env-sync, YAML parse.
-- **Not yet verified (needs Docker):** image build, container start, a high-ID job through the workers, backup/restore drill, MariaDB integration tests, Playwright e2e.
+- Remote: `origin` = `https://github.com/billsargent/ao3-scraper2.git`, branch `main`. Local `main` carries one commit beyond `origin/main` (`3e09865`): `36d57dd` ("Fix container/backup bugs from WSL verification; add statistics + dashboard safety features") — check whether it has been pushed.
+- Verified: `npm run check` (46 tests — 37 unit + 9 MariaDB integration when `COLLECTOR_DATABASE_URL` is set), `web:build`, `npm run test:e2e` (6 Playwright tests), image build, container start + health, high-ID job through the workers, backup/restore drill, docs links/env-sync, shell syntax.
+- API additions since the single-container rework: `GET /api/statistics` (archive aggregates for the Overview), `POST /api/exports/:id/verify` (re-hash the on-disk package), and per-source `todayUsage { requests, bytes }` on `GET /api/sources` (shown as Requests/Bandwidth today on the dashboard, plus a dashboard pause/resume kill-switch).
 
-## Migration-to-WSL status (in progress)
+## Migration-to-WSL status (complete)
 
-- WSL2 Ubuntu installed (user `bill`). **Node not installed** (nvm needed); the Windows npm shim leaks into the WSL PATH and must be shadowed by an nvm Node 20. **Docker not installed** — decide: native `docker.io` inside Ubuntu vs Docker Desktop WSL2 backend. Repo not yet cloned inside WSL.
-- Windows-side gotchas: the run_in_terminal/create_file permission can be toggled off/on; Git Bash is at `C:\Program Files\Git\bin\bash.exe`; there is no `python3`; the 19 shell scripts show mode-only `M` entries on Windows (Windows can't set `+x`) — harmless, clean on Linux/WSL.
+- Running on WSL2 Ubuntu 26.04 (user `bill`): nvm + Node v20.20.2 / npm 10.8.2, native `docker.io` 29.1.3 + `docker-compose-v2` (Compose v2.40.3), systemd-managed daemon, passwordless sudo via `/etc/sudoers.d/bill`. The Windows npm shim (`/mnt/c/Users/bill/AppData/Roaming/npm/npm`) is in PATH but shadowed by nvm's node.
+- Container gotchas found during verification (fixed in-tree): `docker/init-mariadb.sh` needs `--socket="$SOCKET"`; the API auth hook guards only `/api/*` (the static UI + unlock screen must stay public); `docker/supervisord.conf` runs the API + workers as the `node` user so `/data` stays owned by the host user (uid 1000) and destructive restore can replace it; `scripts/backup-production.sh` closes `compose exec` stdin with `< /dev/null` (exec otherwise hangs non-interactively).
+- Dev DB for integration tests: `sudo docker compose up -d --wait collector-db` (host port 3307), then `export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'`.
+- Historical Windows gotchas (no longer relevant): Git Bash at `C:\Program Files\Git\bin\bash.exe`; no `python3`; shell scripts show mode-only `M` entries on Windows (harmless).
 
 ## Env examples
 

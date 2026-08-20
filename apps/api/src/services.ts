@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
@@ -62,6 +64,7 @@ export interface ApiServices {
   getExport(exportId: number): Promise<unknown | null>;
   getExportManifest(exportId: number): Promise<unknown | null>;
   getExportDownload(exportId: number): Promise<{ path: string; fileName: string; hash: string; bytes: number } | null>;
+  verifyExport(exportId: number): Promise<{ verified: boolean; archiveHash: string; currentHash: string; bytes: number } | null>;
   updateImportStatus(exportId: number, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean>;
   updateImportStatusByPackage(packageId: string, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean>;
   listWorks(limit: number, offset: number, query: string): Promise<{ items: unknown[]; total: number }>;
@@ -208,6 +211,18 @@ export class MariaDbApiServices implements ApiServices {
     return { path: row.archivePath, fileName: basename(row.archivePath), hash: row.archiveHash, bytes: row.archiveBytes };
   }
 
+  async verifyExport(exportId: number): Promise<{ verified: boolean; archiveHash: string; currentHash: string; bytes: number } | null> {
+    const row = (await this.db.select({
+      status: exportRuns.status,
+      archivePath: exportRuns.archivePath,
+      archiveHash: exportRuns.archiveHash,
+      archiveBytes: exportRuns.archiveBytes,
+    }).from(exportRuns).where(eq(exportRuns.id, exportId)).limit(1))[0];
+    if (!row || row.status !== "completed" || !row.archivePath || !row.archiveHash) return null;
+    const currentHash = `sha256:${await sha256File(row.archivePath)}`;
+    return { verified: currentHash === row.archiveHash, archiveHash: row.archiveHash, currentHash, bytes: row.archiveBytes ?? 0 };
+  }
+
   async updateImportStatusByPackage(packageId: string, update: { status: "not_imported" | "importing" | "imported" | "failed"; error?: string | null | undefined; otwImportRunId?: string | null | undefined }): Promise<boolean> {
     const row = (await this.db.select({ id: exportRuns.id }).from(exportRuns).where(eq(exportRuns.packageId, packageId)).limit(1))[0];
     return row ? this.updateImportStatus(row.id, update) : false;
@@ -328,6 +343,17 @@ export class MariaDbApiServices implements ApiServices {
       terminalFailures: Number(jobStats?.terminalFailures ?? 0),
     };
   }
+}
+
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(path);
+    stream.on("data", (chunk) => { hash.update(chunk); });
+    stream.on("error", reject);
+    stream.on("end", () => resolve());
+  });
+  return hash.digest("hex");
 }
 
 function affectedRows(result: unknown): number {

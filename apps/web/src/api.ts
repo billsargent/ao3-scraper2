@@ -276,6 +276,7 @@ export const api = {
     const fileName = disposition.match(/filename="([^"]+)"/)?.[1] ?? `archive-relay-export-${id}.tar.gz`;
     return { blob: await response.blob(), fileName, hash: response.headers.get("x-content-sha256") };
   },
+  verifyExport: (id: number) => request<{ verified: boolean; archiveHash: string; currentHash: string; bytes: number }>(`/api/exports/${id}/verify`, { method: "POST" }),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

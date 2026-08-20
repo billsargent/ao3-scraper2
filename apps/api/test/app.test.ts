@@ -21,6 +21,7 @@ function services(): ApiServices {
     getExport: vi.fn().mockResolvedValue(null),
     getExportManifest: vi.fn().mockResolvedValue(null),
     getExportDownload: vi.fn().mockResolvedValue(null),
+    verifyExport: vi.fn().mockResolvedValue({ verified: true, archiveHash: "sha256:abc", currentHash: "sha256:abc", bytes: 4096 }),
     updateImportStatus: vi.fn().mockResolvedValue(true),
     updateImportStatusByPackage: vi.fn().mockResolvedValue(true),
     listWorks: vi.fn().mockResolvedValue({ items: [], total: 0 }),
