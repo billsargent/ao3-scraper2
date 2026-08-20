@@ -339,6 +339,37 @@ integration("CollectorStore with MariaDB", () => {
       sourceUrl: "https://archiveofourown.org/works/12345?view_full_work=true",
       capturedAt: "2026-08-17T12:00:00.000Z",
     });
+    records.comments = [{
+      operation: "upsert",
+      sourceWorkId: "12345",
+      sourceCommentId: "c1",
+      parentSourceCommentId: null,
+      authorName: "Commenter",
+      authorProfileUrl: null,
+      postedAt: "Sat 15 Nov 2025 12:16AM UTC",
+      depth: 0,
+      fromWorkCreator: false,
+      textHtml: "<p>Nice work.</p>",
+      contentHash: `sha256:${"d".repeat(64)}`,
+    }];
+    records.kudos = [{
+      sourceWorkId: "12345",
+      sourceKudoId: "user:Commenter",
+      authorName: "Commenter",
+      authorProfileUrl: null,
+      observedAt: "2026-08-17T12:00:00.000Z",
+    }];
+    records.bookmarks = [{
+      operation: "upsert",
+      sourceBookmarkId: "bookmark:12345:Commenter",
+      sourceWorkId: "12345",
+      bookmarkerName: "Commenter",
+      bookmarkerProfileUrl: null,
+      notesHtml: "",
+      tags: [{ name: "to read" }],
+      updatedAt: "20 Aug 2026",
+      contentHash: `sha256:${"e".repeat(64)}`,
+    }];
     const workId = await store.persistCapturedWork(sourceId, records);
 
     expect(firstCount(await db.select({ value: count() }).from(works).where(eq(works.id, workId)))).toBe(1);
@@ -377,6 +408,9 @@ integration("CollectorStore with MariaDB", () => {
       expect(exported.records.chapters).toHaveLength(1);
       expect(exported.records.workTags).toHaveLength(3);
       expect(exported.records.seriesWorks).toHaveLength(1);
+      expect(exported.records.comments).toEqual([expect.objectContaining({ sourceCommentId: "c1", textHtml: "<p>Nice work.</p>" })]);
+      expect(exported.records.kudos).toEqual([expect.objectContaining({ sourceKudoId: "user:Commenter" })]);
+      expect(exported.records.bookmarks).toEqual([expect.objectContaining({ sourceBookmarkId: "bookmark:12345:Commenter", tags: [{ name: "to read" }] })]);
 
       await db.update(works).set({ title: "Changed after export", contentHash: `sha256:${"c".repeat(64)}` })
         .where(eq(works.id, workId));
