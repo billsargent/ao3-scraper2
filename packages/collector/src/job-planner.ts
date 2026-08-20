@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, count, eq, sql } from "drizzle-orm";
-import { collectionJobs, collectionTasks, type CollectorDatabase } from "@ao3-offsite/database";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { collectionJobs, collectionTasks, observations, type CollectorDatabase } from "@ao3-offsite/database";
 import { IdRangeConfigurationSchema } from "./planner.js";
 
 export interface ClaimedPlanningJob {
@@ -57,14 +57,26 @@ export class JobPlannerStore {
   async enqueueBatch(id: number, leaseToken: string, sourceWorkIds: string[], nextCursor: number, leaseMilliseconds = 120_000): Promise<boolean> {
     const now = new Date();
     return this.db.transaction(async (tx) => {
-      const job = (await tx.select({ status: collectionJobs.status }).from(collectionJobs).where(and(
+      const job = (await tx.select({ status: collectionJobs.status, sourceId: collectionJobs.sourceId }).from(collectionJobs).where(and(
         eq(collectionJobs.id, id), eq(collectionJobs.planningLeaseToken, leaseToken), eq(collectionJobs.planningStatus, "planning"),
       )).limit(1).for("update"))[0];
       if (!job || job.status === "cancelled") return false;
       if (sourceWorkIds.length) {
-        await tx.insert(collectionTasks).values(sourceWorkIds.map((sourceWorkId) => ({
-          jobId: id, sourceWorkId, status: "queued" as const, availableAt: now,
-        }))).onDuplicateKeyUpdate({ set: { updatedAt: now } });
+        // AO3 never reuses work IDs, so IDs we have already observed as gone
+        // (not_found) must not be re-enqueued. Filter them out before insert.
+        const alreadyNotFound = new Set((await tx.select({ sourceWorkId: observations.sourceWorkId })
+          .from(observations)
+          .where(and(
+            eq(observations.sourceId, job.sourceId),
+            eq(observations.availability, "not_found"),
+            inArray(observations.sourceWorkId, sourceWorkIds),
+          ))).map((row) => row.sourceWorkId));
+        const pending = sourceWorkIds.filter((sourceWorkId) => !alreadyNotFound.has(sourceWorkId));
+        if (pending.length) {
+          await tx.insert(collectionTasks).values(pending.map((sourceWorkId) => ({
+            jobId: id, sourceWorkId, status: "queued" as const, availableAt: now,
+          }))).onDuplicateKeyUpdate({ set: { updatedAt: now } });
+        }
       }
       const taskCount = (await tx.select({ value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, id)))[0]?.value ?? 0;
       await tx.update(collectionJobs).set({

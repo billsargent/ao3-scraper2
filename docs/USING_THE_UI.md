@@ -26,6 +26,7 @@ If you configured an `API_TOKEN` in `.env.production`, the UI first shows an **u
 
 - Lists `retryable_failed` and `terminal_failed` tasks with the error code and message.
 - **HTTP 404 (not found) tasks are not shown here** — for ID-batch jobs those just mean the work is gone, so they are recorded as skipped instead.
+- 404s are remembered: because AO3 never reuses work IDs, any ID already observed as gone is skipped at planning time and never fetched again, even if you re-run the same range later.
 - **Retry job failures** re-queues a job's terminal failures for another pass.
 
 ## Transfer packages (exports)
@@ -39,7 +40,8 @@ If you configured an `API_TOKEN` in `.env.production`, the UI first shows an **u
 ## Archive library
 
 - A paginated list of collected works; search by title or source ID.
-- **View** opens the offline reader: summary, creator, tags, series, chapter list, and the full chapter text — all served from your archive, no network needed.
+- **View** opens the offline reader: summary, creator, kudos and bookmark counts, tags, series, chapter list, and the full chapter text — all served from your archive, no network needed.
+- The reader also shows **captured comments** (when social metadata capture is enabled for the source), with replies indented and work-creator replies flagged.
 
 ## Source settings
 

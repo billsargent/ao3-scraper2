@@ -6,11 +6,14 @@ import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
 import {
   authors,
+  bookmarks,
   chapters,
   collectionJobs,
   collectionTasks,
+  comments,
   exportRuns,
   fetchSnapshots,
+  kudos,
   series,
   seriesWorks,
   sourceDailyUsage,
@@ -342,7 +345,7 @@ export class MariaDbApiServices implements ApiServices {
   async getWork(workId: number): Promise<unknown | null> {
     const work = (await this.db.select().from(works).where(eq(works.id, workId)).limit(1))[0];
     if (!work) return null;
-    const [chapterRows, authorRows, tagRows, seriesRows] = await Promise.all([
+    const [chapterRows, authorRows, tagRows, seriesRows, commentRows, kudosCount, bookmarkCount] = await Promise.all([
       this.db.select({
         id: chapters.id,
         sourceChapterId: chapters.sourceChapterId,
@@ -376,8 +379,31 @@ export class MariaDbApiServices implements ApiServices {
         position: seriesWorks.position,
       }).from(seriesWorks).innerJoin(series, eq(series.id, seriesWorks.seriesId))
         .where(eq(seriesWorks.workId, workId)).orderBy(asc(seriesWorks.position)),
+      this.db.select({
+        sourceCommentId: comments.sourceCommentId,
+        parentSourceCommentId: comments.parentSourceCommentId,
+        authorName: comments.authorName,
+        authorProfileUrl: comments.authorProfileUrl,
+        postedAt: comments.postedAt,
+        depth: comments.depth,
+        fromWorkCreator: comments.fromWorkCreator,
+        textHtml: comments.textHtml,
+      }).from(comments)
+        .where(and(eq(comments.workId, workId), eq(comments.hidden, false)))
+        .orderBy(asc(comments.depth), asc(comments.id)),
+      this.db.select({ value: count() }).from(kudos).where(eq(kudos.workId, workId)),
+      this.db.select({ value: count() }).from(bookmarks).where(and(eq(bookmarks.workId, workId), eq(bookmarks.hidden, false))),
     ]);
-    return { ...work, chapters: chapterRows, authors: authorRows, tags: tagRows, series: seriesRows };
+    return {
+      ...work,
+      chapters: chapterRows,
+      authors: authorRows,
+      tags: tagRows,
+      series: seriesRows,
+      comments: commentRows,
+      kudosCount: kudosCount[0]?.value ?? 0,
+      bookmarksCount: bookmarkCount[0]?.value ?? 0,
+    };
   }
 
   async getChapter(workId: number, chapterId: number): Promise<unknown | null> {

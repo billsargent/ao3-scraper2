@@ -113,6 +113,17 @@ export interface ChapterSummary {
   contentHash: string;
 }
 
+export interface WorkComment {
+  sourceCommentId: string;
+  parentSourceCommentId: string | null;
+  authorName: string;
+  authorProfileUrl: string | null;
+  postedAt: string;
+  depth: number;
+  fromWorkCreator: boolean;
+  textHtml: string;
+}
+
 export interface WorkDetail extends WorkSummary {
   sourceUrl: string;
   summaryHtml: string;
@@ -123,6 +134,9 @@ export interface WorkDetail extends WorkSummary {
   authors: Array<{ sourceAuthorId: string; name: string; profileUrl: string | null; anonymous: boolean; orphaned: boolean; position: number }>;
   tags: Array<{ sourceTagId: string; type: string; name: string; canonical: boolean | null; sourceUrl: string | null; position: number }>;
   series: Array<{ sourceSeriesId: string; name: string; sourceUrl: string; position: number }>;
+  comments: WorkComment[];
+  kudosCount: number;
+  bookmarksCount: number;
 }
 
 export interface ChapterDetail extends ChapterSummary {

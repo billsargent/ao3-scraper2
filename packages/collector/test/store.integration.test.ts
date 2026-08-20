@@ -98,6 +98,24 @@ integration("CollectorStore with MariaDB", () => {
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.discoveredCount).toBe(3);
   });
 
+  it("does not re-enqueue IDs already observed as not_found", async () => {
+    await db.insert(observations).values({
+      sourceId,
+      sourceWorkId: "2",
+      observedAt: new Date(),
+      availability: "not_found",
+      httpStatus: 404,
+      sourceUpdatedAt: null,
+      contentHash: null,
+    });
+    const jobId = await store.createIdRangeJob(sourceId, { start: 1, end: 3, batchSize: 3 });
+    const planner = new JobPlannerWorker("integration-planner", new JobPlannerStore(db), 30_000);
+    expect(await planner.processOne()).toBe(true);
+    const taskIds = (await db.select({ sourceWorkId: collectionTasks.sourceWorkId })
+      .from(collectionTasks).where(eq(collectionTasks.jobId, jobId))).map((row) => row.sourceWorkId);
+    expect(new Set(taskIds)).toEqual(new Set(["1", "3"]));
+  });
+
   it("plans large ID ranges asynchronously and resumes idempotently from a cursor", async () => {
     const plannerQueue = new JobPlannerStore(db);
     const planner = new JobPlannerWorker("integration-planner", plannerQueue, 30_000);
