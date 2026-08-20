@@ -169,6 +169,15 @@ integration("CollectorStore with MariaDB", () => {
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("cancelled");
   }, 15_000);
 
+  it("recovers a cancelled job whose planning was interrupted", async () => {
+    const jobId = await store.createIdRangeJob(sourceId, { start: 1, end: 2, batchSize: 2 });
+    await db.update(collectionJobs).set({ status: "cancelled", planningStatus: "planning" }).where(eq(collectionJobs.id, jobId));
+    await leases.recoverCancelledJobs();
+    const job = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!;
+    expect(job.status).toBe("running");
+    expect(job.planningStatus).toBe("queued");
+  }, 15_000);
+
   it("plans large ID ranges asynchronously and resumes idempotently from a cursor", async () => {
     const plannerQueue = new JobPlannerStore(db);
     const planner = new JobPlannerWorker("integration-planner", plannerQueue, 30_000);

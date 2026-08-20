@@ -200,18 +200,29 @@ export class TaskLeaseStore {
 
   /**
    * Self-heal jobs whose status became 'cancelled' while they still have
-   * queued or retryable tasks. A genuine operator cancel also cancels those
-   * tasks, so only the corrupted state (cancelled + pending work) is flipped
-   * back to running.
+   * queued or retryable tasks, or whose planning was interrupted mid-lease.
+   * A genuine operator cancel cancels those tasks and marks planning
+   * completed, so only the corrupted state (cancelled + pending work) or a
+   * stuck planning lease is flipped back to running.
    */
   async recoverCancelledJobs(now = new Date()): Promise<void> {
     await this.db.execute(sql`
       UPDATE collection_jobs AS job
-      SET job.status = 'running', job.completed_at = NULL, job.updated_at = ${now}
+      SET job.status = 'running',
+          job.completed_at = NULL,
+          job.planning_status = CASE
+            WHEN job.planning_status = 'completed' THEN 'completed'
+            ELSE 'queued'
+          END,
+          job.planning_error = NULL,
+          job.updated_at = ${now}
       WHERE job.status = 'cancelled'
-        AND EXISTS (
-          SELECT 1 FROM collection_tasks
-          WHERE job_id = job.id AND status IN ('queued', 'retryable_failed')
+        AND (
+          job.planning_status IN ('planning', 'leased')
+          OR EXISTS (
+            SELECT 1 FROM collection_tasks
+            WHERE job_id = job.id AND status IN ('queued', 'retryable_failed')
+          )
         )
     `);
   }

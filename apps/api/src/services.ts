@@ -82,6 +82,7 @@ export interface ApiServices {
   retryJobFailures(jobId: number): Promise<void>;
   deleteJob(jobId: number): Promise<"deleted" | "not_found" | "not_deletable">;
   clearCancelledJobs(): Promise<number>;
+  retryPlanning(jobId: number): Promise<"ok" | "not_found" | "already_completed">;
   listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
   createExport(sourceId: number, maximumWorks: number): Promise<{ id: number; packageId: string }>;
   listExports(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
@@ -238,6 +239,22 @@ export class MariaDbApiServices implements ApiServices {
 
   async clearCancelledJobs(): Promise<number> {
     return affectedRows(await this.db.delete(collectionJobs).where(eq(collectionJobs.status, "cancelled")));
+  }
+
+  async retryPlanning(jobId: number): Promise<"ok" | "not_found" | "already_completed"> {
+    const job = (await this.db.select({ planningStatus: collectionJobs.planningStatus }).from(collectionJobs).where(eq(collectionJobs.id, jobId)).limit(1))[0];
+    if (!job) return "not_found";
+    if (job.planningStatus === "completed") return "already_completed";
+    await this.db.update(collectionJobs).set({
+      planningStatus: "queued",
+      planningLeaseToken: null,
+      planningLeaseExpiresAt: null,
+      planningError: null,
+      status: "queued",
+      completedAt: null,
+      updatedAt: new Date(),
+    }).where(eq(collectionJobs.id, jobId));
+    return "ok";
   }
 
   async listFailures(limit: number, offset: number): Promise<{ items: unknown[]; total: number }> {

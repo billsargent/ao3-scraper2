@@ -242,6 +242,13 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     return { deleted: true };
   });
   app.post("/api/jobs/clear-cancelled", async () => ({ deleted: await services.clearCancelledJobs() }));
+  app.post("/api/jobs/:id/retry-planning", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const result = await services.retryPlanning(id);
+    if (result === "not_found") return reply.status(404).send({ error: "not_found" });
+    if (result === "already_completed") return reply.status(409).send({ error: "planning_completed", message: "Planning is already complete." });
+    return { updated: true };
+  });
   app.post("/api/exports", async (request, reply) => {
     const body = ExportBody.parse(request.body);
     const created = await services.createExport(body.sourceId, body.maximumWorks);

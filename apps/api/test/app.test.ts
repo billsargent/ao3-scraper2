@@ -17,6 +17,7 @@ function services(): ApiServices {
     retryJobFailures: vi.fn().mockResolvedValue(undefined),
     deleteJob: vi.fn().mockResolvedValue("deleted"),
     clearCancelledJobs: vi.fn().mockResolvedValue(0),
+    retryPlanning: vi.fn().mockResolvedValue("ok"),
     listFailures: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     createExport: vi.fn().mockResolvedValue({ id: 3, packageId: "00000000-0000-4000-8000-000000000003" }),
     listExports: vi.fn().mockResolvedValue({ items: [], total: 0 }),
@@ -187,6 +188,18 @@ describe("Fastify control API", () => {
 
     expect((await app.inject({ method: "POST", url: "/api/jobs/clear-cancelled" })).statusCode).toBe(200);
     expect(mock.clearCancelledJobs).toHaveBeenCalled();
+  });
+
+  it("retries interrupted planning", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    expect((await app.inject({ method: "POST", url: "/api/jobs/7/retry-planning" })).statusCode).toBe(200);
+    expect(mock.retryPlanning).toHaveBeenCalledWith(7);
+
+    vi.mocked(mock.retryPlanning).mockResolvedValueOnce("already_completed");
+    expect((await app.inject({ method: "POST", url: "/api/jobs/8/retry-planning" })).statusCode).toBe(409);
+
+    vi.mocked(mock.retryPlanning).mockResolvedValueOnce("not_found");
+    expect((await app.inject({ method: "POST", url: "/api/jobs/999/retry-planning" })).statusCode).toBe(404);
   });
 
   it("creates sources paused with conservative defaults", async () => {

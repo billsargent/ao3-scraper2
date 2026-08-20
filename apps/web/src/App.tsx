@@ -150,6 +150,7 @@ function Jobs({ source }: { source: Source | undefined }) {
   const control = useMutation({ mutationFn: ({ id, action }: { id: number; action: "pause" | "resume" | "cancel" }) => api.controlJob(id, action), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
   const remove = useMutation({ mutationFn: (id: number) => api.deleteJob(id), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
   const clearCancelled = useMutation({ mutationFn: () => api.clearCancelledJobs(), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
+  const replan = useMutation({ mutationFn: (id: number) => api.retryPlanning(id), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
   const cancelledCount = jobs.data?.jobs.filter((job) => job.status === "cancelled").length ?? 0;
   return <>
     <div className="page-actions"><div><h2>Durable collection queue</h2><p>Jobs survive worker and API restarts. Source limits apply across every worker.</p></div><div style={{ display: "flex", gap: 8 }}>{cancelledCount > 0 && <button className="danger-button" disabled={clearCancelled.isPending} onClick={() => { if (window.confirm(`Delete all ${cancelledCount} cancelled jobs and their tasks?`)) clearCancelled.mutate(); }}>Clear cancelled ({cancelledCount})</button>}<button className="primary" disabled={!source} onClick={() => setShowForm(true)}><Icon path="M12 5v14M5 12h14" />New job</button></div></div>
@@ -160,6 +161,7 @@ function Jobs({ source }: { source: Source | undefined }) {
           {(job.status === "queued" || job.status === "running") && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button disabled={control.isPending} className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
+          {['cancelled','failed'].includes(job.status) && job.planningStatus !== "completed" && <button disabled={replan.isPending} onClick={() => replan.mutate(job.id)}>Retry planning</button>}
           {['completed','cancelled','failed'].includes(job.status) && <button className="danger" disabled={remove.isPending} onClick={() => { if (window.confirm(`Delete job #${job.id} and its tasks? This cannot be undone.`)) remove.mutate(job.id); }}>Delete</button>}
         </div></td></tr>)}
       </tbody></table></div> : <Empty title="The queue is empty" text="Create a small job to begin collecting." />}
