@@ -21,7 +21,7 @@ export interface WorkerOptions {
   random?: () => number;
 }
 
-export type WorkerLeaseOperations = Pick<TaskLeaseStore, "claim" | "heartbeat" | "complete" | "defer" | "reclaimExpired">;
+export type WorkerLeaseOperations = Pick<TaskLeaseStore, "claim" | "heartbeat" | "complete" | "defer" | "reclaimExpired" | "recoverCancelledJobs">;
 export type WorkerBudgetOperations = Pick<SourceBudgetStore, "reserveRequest" | "recordResponseBytes">;
 
 export class CollectorWorker {
@@ -89,9 +89,17 @@ export class CollectorWorker {
 
   async run(signal: AbortSignal): Promise<void> {
     await this.leases.reclaimExpired(this.now());
+    let cycles = 0;
     while (!signal.aborted) {
       const processed = await this.processOne();
       if (!processed && !signal.aborted) await this.sleep(this.idleMilliseconds);
+      cycles += 1;
+      // Periodically heal jobs whose status was corrupted to 'cancelled'
+      // while they still have pending tasks (see recoverCancelledJobs).
+      if (cycles % 10 === 0 && !signal.aborted) {
+        await this.leases.reclaimExpired(this.now());
+        await this.leases.recoverCancelledJobs(this.now());
+      }
     }
   }
 

@@ -198,6 +198,24 @@ export class TaskLeaseStore {
     `);
   }
 
+  /**
+   * Self-heal jobs whose status became 'cancelled' while they still have
+   * queued or retryable tasks. A genuine operator cancel also cancels those
+   * tasks, so only the corrupted state (cancelled + pending work) is flipped
+   * back to running.
+   */
+  async recoverCancelledJobs(now = new Date()): Promise<void> {
+    await this.db.execute(sql`
+      UPDATE collection_jobs AS job
+      SET job.status = 'running', job.completed_at = NULL, job.updated_at = ${now}
+      WHERE job.status = 'cancelled'
+        AND EXISTS (
+          SELECT 1 FROM collection_tasks
+          WHERE job_id = job.id AND status IN ('queued', 'retryable_failed')
+        )
+    `);
+  }
+
   async pauseJob(jobId: number): Promise<void> {
     await withDatabaseRetry(async () => {
       const now = new Date();

@@ -155,6 +155,20 @@ integration("CollectorStore with MariaDB", () => {
     expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("running");
   }, 15_000);
 
+  it("recovers a cancelled job that still has queued tasks, and keeps genuine cancels", async () => {
+    const jobId = await store.createIdRangeJob(sourceId, { start: 1, end: 2, batchSize: 2 });
+    await store.enqueueWorkIds(jobId, ["1", "2"]);
+    await db.update(collectionJobs).set({ status: "cancelled" }).where(eq(collectionJobs.id, jobId));
+    await leases.recoverCancelledJobs();
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("running");
+
+    // A genuine cancel (tasks cancelled too) must stay cancelled.
+    await db.update(collectionTasks).set({ status: "cancelled" }).where(eq(collectionTasks.jobId, jobId));
+    await db.update(collectionJobs).set({ status: "cancelled" }).where(eq(collectionJobs.id, jobId));
+    await leases.recoverCancelledJobs();
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("cancelled");
+  }, 15_000);
+
   it("plans large ID ranges asynchronously and resumes idempotently from a cursor", async () => {
     const plannerQueue = new JobPlannerStore(db);
     const planner = new JobPlannerWorker("integration-planner", plannerQueue, 30_000);
