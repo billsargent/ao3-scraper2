@@ -46,6 +46,12 @@ const policy = {
   maximumFailureAttempts: 6,
   operatingWindowStartHourUtc: null,
   operatingWindowEndHourUtc: null,
+  captureComments: false,
+  captureKudos: false,
+  captureBookmarks: false,
+  maximumCommentPages: null,
+  maximumKudosPages: null,
+  maximumBookmarkPages: null,
 };
 
 const apps: ReturnType<typeof buildApp>[] = [];

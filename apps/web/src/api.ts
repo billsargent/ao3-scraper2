@@ -12,6 +12,12 @@ export interface Source {
   maximumFailureAttempts: number;
   operatingWindowStartHourUtc: number | null;
   operatingWindowEndHourUtc: number | null;
+  captureComments: boolean;
+  captureKudos: boolean;
+  captureBookmarks: boolean;
+  maximumCommentPages: number | null;
+  maximumKudosPages: number | null;
+  maximumBookmarkPages: number | null;
   paused: boolean;
   nextRequestAt: string | null;
   todayUsage?: { requests: number; bytes: number };
@@ -276,7 +282,7 @@ export const api = {
   createSource: (body: { key: string; origin: string }) => request<{ sourceId: number; paused: boolean }>("/api/sources", {
     method: "POST", body: JSON.stringify(body),
   }),
-  updateSource: (id: number, body: Pick<Source, "userAgent" | "includeAdult" | "minimumDelayMs" | "dailyRequestBudget" | "dailyByteBudget" | "requestTimeoutMs" | "maximumResponseBytes" | "maximumFailureAttempts" | "operatingWindowStartHourUtc" | "operatingWindowEndHourUtc" | "paused">) => request<{ updated: boolean }>(`/api/sources/${id}`, {
+  updateSource: (id: number, body: Pick<Source, "userAgent" | "includeAdult" | "minimumDelayMs" | "dailyRequestBudget" | "dailyByteBudget" | "requestTimeoutMs" | "maximumResponseBytes" | "maximumFailureAttempts" | "operatingWindowStartHourUtc" | "operatingWindowEndHourUtc" | "captureComments" | "captureKudos" | "captureBookmarks" | "maximumCommentPages" | "maximumKudosPages" | "maximumBookmarkPages" | "paused">) => request<{ updated: boolean }>(`/api/sources/${id}`, {
     method: "PUT", body: JSON.stringify(body),
   }),
   jobs: () => request<{ jobs: CollectionJob[] }>("/api/jobs?limit=100&offset=0"),

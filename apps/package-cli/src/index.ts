@@ -95,6 +95,9 @@ function samplePackage(): TransferPackage {
         sourceUpdatedAt: "2021-04-20",
         contentHash: workHash,
       }],
+      comments: [],
+      kudos: [],
+      bookmarks: [],
     },
   };
 }

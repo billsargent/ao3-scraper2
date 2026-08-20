@@ -47,6 +47,12 @@ If you configured an `API_TOKEN` in `.env.production`, the UI first shows an **u
 - **Browser identity** — User-Agent string and whether adult-content interstitials are accepted.
 - **Request pacing and budgets** — minimum delay (ms), daily request cap, daily bandwidth cap, and maximum response size (0 = unlimited).
 - **Failures and schedule** — request timeout (seconds), maximum failure attempts, and an optional operating window (UTC hours).
+- **Social metadata** — opt-in capture of comments, kudos, and bookmarks alongside each work. These fetches are paced by the minimum delay, counted against the daily request budget, and bounded by the per-source page caps (0 = no cap):
+  - **Capture comments** — fetches the work page plus each chapter page to collect the full comment thread, including replies. Comment reply relationships are reconstructed from AO3's parent links.
+  - **Capture kudos** — records named kudos-givers. Guest kudos are count-only on AO3 and are not attributed.
+  - **Capture bookmarks** — records public bookmarks, bookmarker notes, and bookmark tags.
+
+Captured social metadata is exported as first-class transfer records (`comments.jsonl`, `kudos.jsonl`, `bookmarks.jsonl`) in the same packages as works, chapters, tags, and series. Note that complete comment capture on long multi-chapter works requires one fetch per chapter; the page cap keeps that bounded, and the daily request budget still applies.
 
 ## System settings
 

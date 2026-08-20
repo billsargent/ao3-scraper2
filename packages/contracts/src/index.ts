@@ -29,6 +29,9 @@ export const ManifestSchema = z.object({
     series: z.number().int().nonnegative(),
     seriesWorks: z.number().int().nonnegative(),
     observations: z.number().int().nonnegative(),
+    comments: z.number().int().nonnegative().optional(),
+    kudos: z.number().int().nonnegative().optional(),
+    bookmarks: z.number().int().nonnegative().optional(),
   }),
 }).superRefine((manifest, context) => {
   if (manifest.packageType === "snapshot" && manifest.previousPackageId !== null) {
@@ -132,6 +135,40 @@ export const ObservationSchema = z.object({
   contentHash: Sha256.nullable(),
 });
 
+export const CommentSchema = z.object({
+  operation: z.enum(["upsert", "hide"]),
+  sourceWorkId: SourceId,
+  sourceCommentId: SourceId,
+  parentSourceCommentId: SourceId.nullable(),
+  authorName: z.string().min(1).max(255),
+  authorProfileUrl: HttpUrl.nullable(),
+  postedAt: z.string().min(1).max(255),
+  depth: z.number().int().nonnegative(),
+  fromWorkCreator: z.boolean(),
+  textHtml: z.string(),
+  contentHash: Sha256,
+});
+
+export const KudoSchema = z.object({
+  sourceWorkId: SourceId,
+  sourceKudoId: SourceId,
+  authorName: z.string().min(1).max(255),
+  authorProfileUrl: HttpUrl.nullable(),
+  observedAt: IsoDateTime,
+});
+
+export const BookmarkSchema = z.object({
+  operation: z.enum(["upsert", "hide"]),
+  sourceBookmarkId: SourceId,
+  sourceWorkId: SourceId,
+  bookmarkerName: z.string().min(1).max(255),
+  bookmarkerProfileUrl: HttpUrl.nullable(),
+  notesHtml: z.string(),
+  tags: z.array(z.object({ name: z.string().min(1).max(1000) })),
+  updatedAt: z.string().min(1).max(255),
+  contentHash: Sha256,
+});
+
 export const RecordSchemas = {
   "authors.jsonl": AuthorSchema,
   "work-authors.jsonl": WorkAuthorSchema,
@@ -142,6 +179,9 @@ export const RecordSchemas = {
   "series.jsonl": SeriesSchema,
   "series-works.jsonl": SeriesWorkSchema,
   "observations.jsonl": ObservationSchema,
+  "comments.jsonl": CommentSchema,
+  "kudos.jsonl": KudoSchema,
+  "bookmarks.jsonl": BookmarkSchema,
 } as const;
 
 export type Manifest = z.infer<typeof ManifestSchema>;
@@ -154,6 +194,9 @@ export type WorkTag = z.infer<typeof WorkTagSchema>;
 export type Series = z.infer<typeof SeriesSchema>;
 export type SeriesWork = z.infer<typeof SeriesWorkSchema>;
 export type Observation = z.infer<typeof ObservationSchema>;
+export type Comment = z.infer<typeof CommentSchema>;
+export type Kudo = z.infer<typeof KudoSchema>;
+export type Bookmark = z.infer<typeof BookmarkSchema>;
 
 export interface TransferRecords {
   authors: Author[];
@@ -165,6 +208,9 @@ export interface TransferRecords {
   series: Series[];
   seriesWorks: SeriesWork[];
   observations: Observation[];
+  comments: Comment[];
+  kudos: Kudo[];
+  bookmarks: Bookmark[];
 }
 
 export interface TransferPackage {

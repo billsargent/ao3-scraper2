@@ -3,10 +3,13 @@ import { and, count, eq, notInArray } from "drizzle-orm";
 import type { Observation, TransferRecords } from "@ao3-offsite/contracts";
 import {
   authors,
+  bookmarks,
   chapters,
   collectionJobs,
   collectionTasks,
+  comments,
   fetchSnapshots,
+  kudos,
   observations,
   series,
   seriesWorks,
@@ -225,6 +228,72 @@ export class CollectorStore {
           sourceUpdatedAt: observation.sourceUpdatedAt,
           contentHash: observation.contentHash,
         }).onDuplicateKeyUpdate({ set: { contentHash: observation.contentHash } });
+      }
+
+      for (const comment of records.comments) {
+        await tx.insert(comments).values({
+          sourceId,
+          workId: work.id,
+          sourceCommentId: comment.sourceCommentId,
+          parentSourceCommentId: comment.parentSourceCommentId,
+          authorName: comment.authorName,
+          authorProfileUrl: comment.authorProfileUrl,
+          postedAt: comment.postedAt,
+          depth: comment.depth,
+          fromWorkCreator: comment.fromWorkCreator,
+          textHtml: comment.textHtml,
+          contentHash: comment.contentHash,
+          hidden: false,
+          firstSeenAt: capturedAt,
+          lastSeenAt: capturedAt,
+        }).onDuplicateKeyUpdate({ set: {
+          parentSourceCommentId: comment.parentSourceCommentId,
+          authorName: comment.authorName,
+          authorProfileUrl: comment.authorProfileUrl,
+          postedAt: comment.postedAt,
+          depth: comment.depth,
+          fromWorkCreator: comment.fromWorkCreator,
+          textHtml: comment.textHtml,
+          contentHash: comment.contentHash,
+          hidden: false,
+          lastSeenAt: capturedAt,
+          updatedAt: capturedAt,
+        }});
+      }
+
+      for (const kudo of records.kudos) {
+        await tx.insert(kudos).values({
+          sourceId,
+          workId: work.id,
+          sourceKudoId: kudo.sourceKudoId,
+          authorName: kudo.authorName,
+          authorProfileUrl: kudo.authorProfileUrl,
+          observedAt: new Date(kudo.observedAt),
+        }).onDuplicateKeyUpdate({ set: { updatedAt: capturedAt } });
+      }
+
+      for (const bookmark of records.bookmarks) {
+        await tx.insert(bookmarks).values({
+          sourceId,
+          workId: work.id,
+          sourceBookmarkId: bookmark.sourceBookmarkId,
+          bookmarkerName: bookmark.bookmarkerName,
+          bookmarkerProfileUrl: bookmark.bookmarkerProfileUrl,
+          notesHtml: bookmark.notesHtml,
+          tagsJson: bookmark.tags,
+          sourceUpdatedAt: bookmark.updatedAt,
+          contentHash: bookmark.contentHash,
+          hidden: false,
+        }).onDuplicateKeyUpdate({ set: {
+          bookmarkerName: bookmark.bookmarkerName,
+          bookmarkerProfileUrl: bookmark.bookmarkerProfileUrl,
+          notesHtml: bookmark.notesHtml,
+          tagsJson: bookmark.tags,
+          sourceUpdatedAt: bookmark.updatedAt,
+          contentHash: bookmark.contentHash,
+          hidden: false,
+          updatedAt: capturedAt,
+        }});
       }
       return work.id;
     });

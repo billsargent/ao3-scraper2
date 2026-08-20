@@ -4,7 +4,10 @@ import { createHash } from "node:crypto";
 import { load, type CheerioAPI } from "cheerio";
 import type {
   Author,
+  Bookmark,
   Chapter,
+  Comment,
+  Kudo,
   Observation,
   Series,
   SeriesWork,
@@ -255,5 +258,160 @@ export function parseEntireWorkHtml(html: string, options: ParseWorkOptions): Tr
     series: parsedSeries.series,
     seriesWorks: parsedSeries.relations,
     observations: [observation],
+    comments: [],
+    kudos: [],
+    bookmarks: [],
   };
+}
+
+export interface CommentParseContext {
+  sourceWorkId: string;
+  origin: string;
+  /** Normalized absolute profile URLs of the work creators, used to flag creator replies. */
+  creatorProfileUrls: string[];
+}
+
+function normalizeProfileUrl(url: string): string {
+  return url.replace(/\/$/, "");
+}
+
+/**
+ * Parse the flat comment list rendered by AO3 (work page with show_comments=true,
+ * chapter pages, or comment thread pages). Parent links in each comment's action
+ * list are used to reconstruct the reply tree.
+ */
+export function parseCommentsHtml(html: string, ctx: CommentParseContext): Comment[] {
+  const $ = load(html);
+  const creatorUrls = new Set(ctx.creatorProfileUrls.map(normalizeProfileUrl));
+  const comments: Comment[] = [];
+
+  $("li.comment.group").each((_index, element) => {
+    const node = $(element);
+    const idAttr = node.attr("id") ?? "";
+    const sourceCommentId = idAttr.startsWith("comment_") ? idAttr.slice("comment_".length) : idAttr;
+    if (!sourceCommentId) return;
+
+    const byline = node.find("h4.heading.byline").first();
+    const authorLink = byline.find("a[href*='/users/']").first();
+    const authorName = compactText(authorLink.text()) || "Anonymous";
+    const authorHref = authorLink.attr("href");
+    const authorProfileUrl = authorHref ? new URL(authorHref, ctx.origin).toString() : null;
+
+    const parentLink = node
+      .find("ul.actions a")
+      .filter((_i, anchor) => compactText($(anchor).text()) === "Parent")
+      .first();
+    const parentHref = parentLink.attr("href");
+    const parentSourceCommentId = parentHref ? (parentHref.match(/\/comments\/(\d+)/)?.[1] ?? null) : null;
+
+    const textHtml = node.children("blockquote.userstuff").first().html()?.trim() ?? "";
+    const fromWorkCreator = authorProfileUrl !== null && creatorUrls.has(normalizeProfileUrl(authorProfileUrl));
+
+    comments.push({
+      operation: "upsert",
+      sourceWorkId: ctx.sourceWorkId,
+      sourceCommentId,
+      parentSourceCommentId,
+      authorName,
+      authorProfileUrl,
+      postedAt: compactText(byline.find("span.posted.datetime").text()),
+      depth: 0,
+      fromWorkCreator,
+      textHtml,
+      contentHash: hash(JSON.stringify({ textHtml, authorName, parentSourceCommentId })),
+    });
+  });
+
+  // Reconstruct reply depth from the parent chain (parents always precede
+  // children in the flat AO3 list).
+  const byId = new Map(comments.map((comment) => [comment.sourceCommentId, comment]));
+  for (const comment of comments) {
+    let depth = 0;
+    let parentId = comment.parentSourceCommentId;
+    const seen = new Set<string>();
+    while (parentId && byId.has(parentId) && !seen.has(parentId)) {
+      seen.add(parentId);
+      depth++;
+      parentId = byId.get(parentId)!.parentSourceCommentId;
+    }
+    comment.depth = depth;
+  }
+
+  return comments;
+}
+
+export interface KudoParseContext {
+  sourceWorkId: string;
+  origin: string;
+  observedAt: string;
+}
+
+/** Parse named kudos-givers from a /works/<id>/kudos page. Guest kudos are count-only and not emitted. */
+export function parseKudosHtml(html: string, ctx: KudoParseContext): Kudo[] {
+  const $ = load(html);
+  const kudos: Kudo[] = [];
+  $("#kudos a[href^='/users/']").each((_index, element) => {
+    const node = $(element);
+    const name = compactText(node.text());
+    if (!name) return;
+    const href = node.attr("href");
+    const userMatch = href?.match(/^\/users\/([^/]+)/);
+    kudos.push({
+      sourceWorkId: ctx.sourceWorkId,
+      sourceKudoId: `user:${userMatch?.[1] ? decodeURIComponent(userMatch[1]) : name}`,
+      authorName: name,
+      authorProfileUrl: href ? new URL(href, ctx.origin).toString() : null,
+      observedAt: ctx.observedAt,
+    });
+  });
+  return kudos;
+}
+
+export interface BookmarkParseContext {
+  sourceWorkId: string;
+  origin: string;
+}
+
+/** Parse public bookmarks from a /works/<id>/bookmarks page. */
+export function parseBookmarksHtml(html: string, ctx: BookmarkParseContext): Bookmark[] {
+  const $ = load(html);
+  const bookmarks: Bookmark[] = [];
+  $("ol.bookmark.index li.user.short.blurb").each((_index, element) => {
+    const node = $(element);
+    const bookmarkerLink = node.find("h5.byline.heading a[href*='/users/']").first();
+    const bookmarkerName = compactText(bookmarkerLink.text());
+    if (!bookmarkerName) return;
+    const href = bookmarkerLink.attr("href");
+    const notesHtml = node.find("blockquote.userstuff").first().html()?.trim() ?? "";
+    const tags = node
+      .find("ul.tags a.tag")
+      .map((_i, tag) => ({ name: compactText($(tag).text()) }))
+      .get()
+      .filter((tag) => tag.name.length > 0);
+    const updatedAt = compactText(node.find("p.datetime").first().text());
+
+    bookmarks.push({
+      operation: "upsert",
+      sourceBookmarkId: `bookmark:${ctx.sourceWorkId}:${bookmarkerName}`,
+      sourceWorkId: ctx.sourceWorkId,
+      bookmarkerName,
+      bookmarkerProfileUrl: href ? new URL(href, ctx.origin).toString() : null,
+      notesHtml,
+      tags,
+      updatedAt,
+      contentHash: hash(JSON.stringify({ bookmarkerName, notesHtml, tags, updatedAt })),
+    });
+  });
+  return bookmarks;
+}
+
+/**
+ * Return the next paginated URL for a listing page, or null when there is no next page.
+ * Works for comment/kudos/bookmark listings (`.pagination .next a` / `a[rel=next]`).
+ */
+export function nextPageUrl(html: string, currentUrl: string): string | null {
+  const $ = load(html);
+  const next = $(".pagination li.next a, .pagination a.next, a[rel='next']").first();
+  const href = next.attr("href");
+  return href ? new URL(href, currentUrl).toString() : null;
 }

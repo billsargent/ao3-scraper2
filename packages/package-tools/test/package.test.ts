@@ -42,6 +42,7 @@ function fixture(): TransferPackage {
         sourceWorkId: "work-1", observedAt: "2026-08-17T12:00:00.000Z", availability: "public",
         httpStatus: 200, sourceUpdatedAt: null, contentHash: digest(content),
       }],
+      comments: [], kudos: [], bookmarks: [],
     },
   };
 }

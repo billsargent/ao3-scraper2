@@ -25,6 +25,12 @@ export interface ClaimedTask {
     requestTimeoutMs: number;
     maximumResponseBytes: number;
     maximumFailureAttempts: number;
+    captureComments: boolean;
+    captureKudos: boolean;
+    captureBookmarks: boolean;
+    maximumCommentPages: number | null;
+    maximumKudosPages: number | null;
+    maximumBookmarkPages: number | null;
   };
 }
 
@@ -84,6 +90,12 @@ export class TaskLeaseStore {
       requestTimeoutMs: sources.requestTimeoutMs,
       maximumResponseBytes: sources.maximumResponseBytes,
       maximumFailureAttempts: sources.maximumFailureAttempts,
+      captureComments: sources.captureComments,
+      captureKudos: sources.captureKudos,
+      captureBookmarks: sources.captureBookmarks,
+      maximumCommentPages: sources.maximumCommentPages,
+      maximumKudosPages: sources.maximumKudosPages,
+      maximumBookmarkPages: sources.maximumBookmarkPages,
     }).from(collectionTasks)
       .innerJoin(collectionJobs, eq(collectionJobs.id, collectionTasks.jobId))
       .innerJoin(sources, eq(sources.id, collectionJobs.sourceId))
@@ -107,6 +119,12 @@ export class TaskLeaseStore {
         requestTimeoutMs: row.requestTimeoutMs,
         maximumResponseBytes: row.maximumResponseBytes,
         maximumFailureAttempts: row.maximumFailureAttempts,
+        captureComments: row.captureComments,
+        captureKudos: row.captureKudos,
+        captureBookmarks: row.captureBookmarks,
+        maximumCommentPages: row.maximumCommentPages,
+        maximumKudosPages: row.maximumKudosPages,
+        maximumBookmarkPages: row.maximumBookmarkPages,
       },
     }));
   }

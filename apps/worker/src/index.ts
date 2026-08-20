@@ -24,6 +24,7 @@ const configuration = z.object({
 const { db, pool } = createDatabase(configuration.COLLECTOR_DATABASE_URL);
 const store = new CollectorStore(db);
 const blobs = new ContentAddressedBlobStore(resolve(configuration.COLLECTOR_BLOB_DIRECTORY));
+const budgets = new SourceBudgetStore(db);
 const processors: WorkProcessorFactory = {
   create(task: ClaimedTask) {
     const fetcher = new PoliteSourceClient({
@@ -35,16 +36,34 @@ const processors: WorkProcessorFactory = {
       maximumAttempts: 1,
     });
     return new WorkTaskProcessor(
-      { id: task.source.id, origin: task.source.origin, includeAdult: task.source.includeAdult },
+      {
+        id: task.source.id,
+        origin: task.source.origin,
+        includeAdult: task.source.includeAdult,
+        captureComments: task.source.captureComments,
+        captureKudos: task.source.captureKudos,
+        captureBookmarks: task.source.captureBookmarks,
+        maximumCommentPages: task.source.maximumCommentPages,
+        maximumKudosPages: task.source.maximumKudosPages,
+        maximumBookmarkPages: task.source.maximumBookmarkPages,
+      },
       fetcher,
       blobs,
       store,
+      {
+        reserve: async () => {
+          const reservation = await budgets.reserveRequest(task.source.id);
+          return reservation.granted
+            ? { granted: true as const, retryAt: null }
+            : { granted: false as const, retryAt: reservation.retryAt };
+        },
+      },
     );
   },
 };
 const worker = new CollectorWorker(
   new TaskLeaseStore(db),
-  new SourceBudgetStore(db),
+  budgets,
   processors,
   {
     workerId: configuration.WORKER_ID ?? `${hostname()}:${process.pid}`,

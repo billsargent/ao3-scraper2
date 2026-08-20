@@ -53,6 +53,12 @@ const SourcePolicy = z.object({
   maximumFailureAttempts: z.number().int().nonnegative().default(6),
   operatingWindowStartHourUtc: z.number().int().min(0).max(23).nullable().default(null),
   operatingWindowEndHourUtc: z.number().int().min(0).max(23).nullable().default(null),
+  captureComments: z.boolean().default(false),
+  captureKudos: z.boolean().default(false),
+  captureBookmarks: z.boolean().default(false),
+  maximumCommentPages: z.number().int().nonnegative().nullable().default(null),
+  maximumKudosPages: z.number().int().nonnegative().nullable().default(null),
+  maximumBookmarkPages: z.number().int().nonnegative().nullable().default(null),
 }).superRefine((policy, context) => {
   if ((policy.operatingWindowStartHourUtc === null) !== (policy.operatingWindowEndHourUtc === null)) {
     context.addIssue({ code: "custom", path: ["operatingWindowStartHourUtc"], message: "Both operating-window hours must be set or both must be null" });

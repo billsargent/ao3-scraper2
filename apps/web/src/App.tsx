@@ -102,6 +102,9 @@ function Dashboard({ source, onNavigate }: { source: Source | undefined; onNavig
         requestTimeoutMs: source.requestTimeoutMs, maximumResponseBytes: source.maximumResponseBytes,
         maximumFailureAttempts: source.maximumFailureAttempts,
         operatingWindowStartHourUtc: source.operatingWindowStartHourUtc, operatingWindowEndHourUtc: source.operatingWindowEndHourUtc,
+        captureComments: source.captureComments, captureKudos: source.captureKudos, captureBookmarks: source.captureBookmarks,
+        maximumCommentPages: source.maximumCommentPages, maximumKudosPages: source.maximumKudosPages,
+        maximumBookmarkPages: source.maximumBookmarkPages,
         paused: !source.paused,
       });
     },
@@ -254,7 +257,7 @@ function Library() {
     <Panel title={`${formatNumber(total)} collected works`}>
       {list.length ? <>
         <div className="table-wrap work-list"><table><thead><tr><th>Work title</th><th>Source ID</th><th>Words</th><th>Chapters</th><th>Status</th><th>Updated</th><th><span className="sr-only">Open</span></th></tr></thead><tbody>
-          {list.map((work) => <tr key={work.id}><td className="title-cell"><b>{work.title || "Untitled work"}</b><small>{work.complete ? "Complete" : "In progress"} · {work.languageCode.toUpperCase()}</small></td><td><span className="source-id">AO3 #{work.sourceWorkId}</span></td><td>{formatNumber(work.words ?? 0)}</td><td>{work.expectedChapters ?? "?"}</td><td><Status status={work.availability} /></td><td>{work.sourceUpdatedAt ? formatDate(work.sourceUpdatedAt) : "—"}</td><td><button className="read-button" onClick={() => setSelectedWork(work.id)}>View</button></td></tr>)}
+          {list.map((work) => <tr key={work.id}><td className="title-cell"><button className="title-link" onClick={() => setSelectedWork(work.id)} title="Open reader">{work.title || "Untitled work"}</button><small>{work.complete ? "Complete" : "In progress"} · {work.languageCode.toUpperCase()}</small></td><td><span className="source-id">AO3 #{work.sourceWorkId}</span></td><td>{formatNumber(work.words ?? 0)}</td><td>{work.expectedChapters ?? "?"}</td><td><Status status={work.availability} /></td><td>{work.sourceUpdatedAt ? formatDate(work.sourceUpdatedAt) : "—"}</td><td><button className="read-button" onClick={() => setSelectedWork(work.id)}>View</button></td></tr>)}
         </tbody></table></div>
         <div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page <b>{page + 1}</b> of {pages}</span><button disabled={page + 1 >= pages} onClick={() => setPage((value) => value + 1)}>Next →</button></div>
       </> : <Empty title="No matching works" text="Collected works will appear here after a worker succeeds." />}
@@ -295,6 +298,12 @@ function Settings({ source }: { source: Source | undefined }) {
   const [windowEnabled, setWindowEnabled] = useState(source?.operatingWindowStartHourUtc !== null);
   const [windowStart, setWindowStart] = useState(source?.operatingWindowStartHourUtc ?? 0);
   const [windowEnd, setWindowEnd] = useState(source?.operatingWindowEndHourUtc ?? 6);
+  const [captureComments, setCaptureComments] = useState(source?.captureComments ?? false);
+  const [captureKudos, setCaptureKudos] = useState(source?.captureKudos ?? false);
+  const [captureBookmarks, setCaptureBookmarks] = useState(source?.captureBookmarks ?? false);
+  const [maxCommentPages, setMaxCommentPages] = useState(source ? source.maximumCommentPages ?? 0 : 0);
+  const [maxKudosPages, setMaxKudosPages] = useState(source ? source.maximumKudosPages ?? 0 : 0);
+  const [maxBookmarkPages, setMaxBookmarkPages] = useState(source ? source.maximumBookmarkPages ?? 0 : 0);
   useEffect(() => {
     if (!source) return;
     setUserAgent(source.userAgent); setIncludeAdult(source.includeAdult); setDelay(source.minimumDelayMs);
@@ -302,13 +311,20 @@ function Settings({ source }: { source: Source | undefined }) {
     setTimeoutSeconds(source.requestTimeoutMs / 1000); setMaxResponseMb(Math.round(source.maximumResponseBytes / 1_048_576));
     setAttempts(source.maximumFailureAttempts); setWindowEnabled(source.operatingWindowStartHourUtc !== null);
     setWindowStart(source.operatingWindowStartHourUtc ?? 0); setWindowEnd(source.operatingWindowEndHourUtc ?? 6);
+    setCaptureComments(source.captureComments); setCaptureKudos(source.captureKudos); setCaptureBookmarks(source.captureBookmarks);
+    setMaxCommentPages(source.maximumCommentPages ?? 0); setMaxKudosPages(source.maximumKudosPages ?? 0); setMaxBookmarkPages(source.maximumBookmarkPages ?? 0);
   }, [source]);
   const update = useMutation({ mutationFn: (paused: boolean) => source ? api.updateSource(source.id, {
     userAgent, includeAdult, minimumDelayMs: Math.max(0, Math.round(delay)), dailyRequestBudget: budget === 0 ? null : Math.max(0, Math.round(budget)),
     dailyByteBudget: byteBudgetMb === 0 ? null : Math.max(0, Math.round(byteBudgetMb * 1_048_576)), requestTimeoutMs: Math.max(0, Math.round(timeoutSeconds * 1000)),
     maximumResponseBytes: Math.max(0, Math.round(maxResponseMb * 1_048_576)), maximumFailureAttempts: Math.max(0, Math.round(attempts)),
     operatingWindowStartHourUtc: windowEnabled ? windowStart : null,
-    operatingWindowEndHourUtc: windowEnabled ? windowEnd : null, paused,
+    operatingWindowEndHourUtc: windowEnabled ? windowEnd : null,
+    captureComments, captureKudos, captureBookmarks,
+    maximumCommentPages: maxCommentPages === 0 ? null : Math.max(0, Math.round(maxCommentPages)),
+    maximumKudosPages: maxKudosPages === 0 ? null : Math.max(0, Math.round(maxKudosPages)),
+    maximumBookmarkPages: maxBookmarkPages === 0 ? null : Math.max(0, Math.round(maxBookmarkPages)),
+    paused,
   }) : Promise.reject(new Error("No source")), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
   const create = useMutation({ mutationFn: () => api.createSource({ key: "ao3", origin: "https://archiveofourown.org" }), onSuccess: () => client.invalidateQueries({ queryKey: ["sources"] }) });
   const system = useQuery({ queryKey: ["settings"], queryFn: api.settings, refetchInterval: 60_000 });
@@ -335,6 +351,7 @@ function Settings({ source }: { source: Source | undefined }) {
       <div className="settings-section"><h3>Browser identity</h3><label>Browser ID / User-Agent<textarea rows={3} value={userAgent} onChange={(e) => setUserAgent(e.target.value)} /><small>Defaults to a standard Chrome browser identity. You can append a project contact identifier if desired.</small></label><label className="toggle-row"><input type="checkbox" checked={includeAdult} onChange={(e) => setIncludeAdult(e.target.checked)} /><span><b>Accept adult-content interstitials</b><small>Allows collection of all publicly accessible ratings.</small></span></label></div>
       <div className="settings-section"><h3>Request pacing and budgets</h3><div className="form-grid"><label>Minimum delay (ms)<input type="number" value={delay} onChange={(e) => setDelay(Number(e.target.value))} /><small>0 disables the delay.</small></label><label>Daily requests<input type="number" value={budget} onChange={(e) => setBudget(Number(e.target.value))} /><small>0 means unlimited.</small></label><label>Daily bandwidth (MB)<input type="number" value={byteBudgetMb} onChange={(e) => setByteBudgetMb(Number(e.target.value))} /><small>0 means unlimited.</small></label><label>Maximum response (MB)<input type="number" value={maxResponseMb} onChange={(e) => setMaxResponseMb(Number(e.target.value))} /><small>0 means unlimited.</small></label></div></div>
       <div className="settings-section"><h3>Failures and schedule</h3><div className="form-grid"><label>Request timeout (seconds)<input type="number" value={timeoutSeconds} onChange={(e) => setTimeoutSeconds(Number(e.target.value))} /><small>0 disables the request timeout.</small></label><label>Maximum failure attempts<input type="number" value={attempts} onChange={(e) => setAttempts(Number(e.target.value))} /><small>0 means unlimited retries.</small></label></div><label className="toggle-row"><input type="checkbox" checked={windowEnabled} onChange={(e) => setWindowEnabled(e.target.checked)} /><span><b>Restrict collection to a UTC window</b><small>Useful for operating only during agreed low-traffic hours.</small></span></label>{windowEnabled && <div className="form-grid"><label>Start hour UTC<input type="number" min="0" max="23" value={windowStart} onChange={(e) => setWindowStart(Number(e.target.value))} /></label><label>End hour UTC<input type="number" min="0" max="23" value={windowEnd} onChange={(e) => setWindowEnd(Number(e.target.value))} /></label></div>}</div>
+      <div className="settings-section"><h3>Social metadata</h3><p className="muted">Preserve comments, kudos, and bookmarks alongside each work. These fetches are paced by the minimum delay and bounded by the page caps below (0 means no cap, subject to the daily request budget).</p><label className="toggle-row"><input type="checkbox" checked={captureComments} onChange={(e) => setCaptureComments(e.target.checked)} /><span><b>Capture comments</b><small>Fetches the work page plus each chapter page to collect the full comment thread, including replies.</small></span></label><label className="toggle-row"><input type="checkbox" checked={captureKudos} onChange={(e) => setCaptureKudos(e.target.checked)} /><span><b>Capture kudos</b><small>Records named kudos-givers. Guest kudos are count-only and are not attributed.</small></span></label><label className="toggle-row"><input type="checkbox" checked={captureBookmarks} onChange={(e) => setCaptureBookmarks(e.target.checked)} /><span><b>Capture bookmarks</b><small>Records public bookmarks, notes, and bookmark tags.</small></span></label><div className="form-grid"><label>Max comment pages<input type="number" min="0" value={maxCommentPages} onChange={(e) => setMaxCommentPages(Number(e.target.value))} /><small>Chapter pages fetched per work. 0 = unlimited.</small></label><label>Max kudos pages<input type="number" min="0" value={maxKudosPages} onChange={(e) => setMaxKudosPages(Number(e.target.value))} /><small>0 = unlimited.</small></label><label>Max bookmark pages<input type="number" min="0" value={maxBookmarkPages} onChange={(e) => setMaxBookmarkPages(Number(e.target.value))} /><small>0 = unlimited.</small></label></div></div>
       <div className="policy-callout"><Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /><p><b>Distributed safety boundary</b><span>Delay, request, bandwidth, and schedule controls are enforced transactionally across every worker.</span></p></div><div className="settings-actions"><button className="secondary" onClick={() => update.mutate(true)}>Save & pause</button><button className={source.paused ? "primary" : "danger-button"} onClick={() => update.mutate(!source.paused)}>{source.paused ? "Enable collection" : "Pause immediately"}</button></div>{update.error && <p className="form-error">{update.error.message}</p>}
     </div></Panel>
     <Panel title="Current state"><div className="source-detail"><span className={source.paused ? "orb paused" : "orb"} /><h3>{source.paused ? "Collection paused" : "Collection enabled"}</h3><p>{source.paused ? "Workers cannot claim new tasks from this source." : "Workers may claim tasks within the configured limits."}</p><dl><div><dt>Source</dt><dd>{source.origin}</dd></div><div><dt>Next request slot</dt><dd>{source.nextRequestAt ? formatDateTime(source.nextRequestAt) : "Available"}</dd></div><div><dt>Adult content</dt><dd>{source.includeAdult ? "Allowed" : "Excluded"}</dd></div><div><dt>Daily bandwidth</dt><dd>{compactNumber(source.dailyByteBudget ?? 0)}B</dd></div><div><dt>Operating window</dt><dd>{source.operatingWindowStartHourUtc === null ? "Any time" : `${source.operatingWindowStartHourUtc}:00–${source.operatingWindowEndHourUtc}:00 UTC`}</dd></div><div><dt>Archive visibility</dt><dd>Private</dd></div></dl></div></Panel>

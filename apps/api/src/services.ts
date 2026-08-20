@@ -33,6 +33,12 @@ export interface SourceUpdate {
   maximumFailureAttempts: number;
   operatingWindowStartHourUtc: number | null;
   operatingWindowEndHourUtc: number | null;
+  captureComments: boolean;
+  captureKudos: boolean;
+  captureBookmarks: boolean;
+  maximumCommentPages: number | null;
+  maximumKudosPages: number | null;
+  maximumBookmarkPages: number | null;
   paused: boolean;
 }
 

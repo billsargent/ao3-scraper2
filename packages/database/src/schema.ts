@@ -46,6 +46,12 @@ export const sources = mysqlTable("sources", {
   nextExportSequence: bigint("next_export_sequence", { mode: "number", unsigned: true }).notNull().default(1),
   paused: boolean("paused").notNull().default(false),
   nextRequestAt: datetime("next_request_at", { mode: "date", fsp: 3 }),
+  captureComments: boolean("capture_comments").notNull().default(false),
+  captureKudos: boolean("capture_kudos").notNull().default(false),
+  captureBookmarks: boolean("capture_bookmarks").notNull().default(false),
+  maximumCommentPages: int("maximum_comment_pages", { unsigned: true }),
+  maximumKudosPages: int("maximum_kudos_pages", { unsigned: true }),
+  maximumBookmarkPages: int("maximum_bookmark_pages", { unsigned: true }),
   ...timestamps,
 }, (table) => [uniqueIndex("sources_key_unique").on(table.key)]);
 
@@ -263,4 +269,56 @@ export const fetchSnapshots = mysqlTable("fetch_snapshots", {
 }, (table) => [
   index("fetch_snapshots_work_time").on(table.sourceId, table.sourceWorkId, table.fetchedAt),
   uniqueIndex("fetch_snapshots_hash_url_unique").on(table.sourceId, table.urlHash, table.bodyHash),
+]);
+
+export const comments = mysqlTable("comments", {
+  id: id(),
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "restrict" }),
+  workId: foreignId("work_id").notNull().references(() => works.id, { onDelete: "cascade" }),
+  sourceCommentId: varchar("source_comment_id", { length: 255 }).notNull(),
+  parentSourceCommentId: varchar("parent_source_comment_id", { length: 255 }),
+  authorName: varchar("author_name", { length: 255 }).notNull(),
+  authorProfileUrl: varchar("author_profile_url", { length: 1000 }),
+  postedAt: varchar("posted_at", { length: 255 }).notNull(),
+  depth: int("depth", { unsigned: true }).notNull().default(0),
+  fromWorkCreator: boolean("from_work_creator").notNull().default(false),
+  textHtml: longtext("text_html").notNull(),
+  contentHash: char("content_hash", { length: 71 }).notNull(),
+  hidden: boolean("hidden").notNull().default(false),
+  firstSeenAt: datetime("first_seen_at", { mode: "date", fsp: 3 }).notNull(),
+  lastSeenAt: datetime("last_seen_at", { mode: "date", fsp: 3 }).notNull(),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("comments_work_source_unique").on(table.workId, table.sourceCommentId),
+  index("comments_work_posted").on(table.workId, table.postedAt),
+]);
+
+export const kudos = mysqlTable("kudos", {
+  id: id(),
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "restrict" }),
+  workId: foreignId("work_id").notNull().references(() => works.id, { onDelete: "cascade" }),
+  sourceKudoId: varchar("source_kudo_id", { length: 255 }).notNull(),
+  authorName: varchar("author_name", { length: 255 }).notNull(),
+  authorProfileUrl: varchar("author_profile_url", { length: 1000 }),
+  observedAt: datetime("observed_at", { mode: "date", fsp: 3 }).notNull(),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("kudos_work_source_unique").on(table.workId, table.sourceKudoId),
+]);
+
+export const bookmarks = mysqlTable("bookmarks", {
+  id: id(),
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "restrict" }),
+  workId: foreignId("work_id").notNull().references(() => works.id, { onDelete: "cascade" }),
+  sourceBookmarkId: varchar("source_bookmark_id", { length: 255 }).notNull(),
+  bookmarkerName: varchar("bookmarker_name", { length: 255 }).notNull(),
+  bookmarkerProfileUrl: varchar("bookmarker_profile_url", { length: 1000 }),
+  notesHtml: longtext("notes_html").notNull(),
+  tagsJson: json("tags_json").$type<Array<{ name: string }>>().notNull(),
+  sourceUpdatedAt: varchar("source_updated_at", { length: 255 }).notNull(),
+  contentHash: char("content_hash", { length: 71 }).notNull(),
+  hidden: boolean("hidden").notNull().default(false),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("bookmarks_work_source_unique").on(table.workId, table.sourceBookmarkId),
 ]);

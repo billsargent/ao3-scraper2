@@ -20,6 +20,9 @@ const fileToRecordKey = {
   "series.jsonl": "series",
   "series-works.jsonl": "seriesWorks",
   "observations.jsonl": "observations",
+  "comments.jsonl": "comments",
+  "kudos.jsonl": "kudos",
+  "bookmarks.jsonl": "bookmarks",
 } as const satisfies Record<keyof typeof RecordSchemas, keyof TransferRecords>;
 
 const orderedDataFiles = Object.keys(fileToRecordKey) as Array<keyof typeof fileToRecordKey>;
@@ -81,6 +84,9 @@ export function validateReferences(records: TransferRecords): void {
   unique(records.tags.map((tag) => tag.sourceTagId), "tag");
   unique(records.series.map((series) => series.sourceSeriesId), "series");
   unique(records.chapters.map((chapter) => `${chapter.sourceWorkId}:${chapter.sourceChapterId}`), "chapter");
+  unique(records.comments.map((comment) => `${comment.sourceWorkId}:${comment.sourceCommentId}`), "comment");
+  unique(records.kudos.map((kudo) => `${kudo.sourceWorkId}:${kudo.sourceKudoId}`), "kudo");
+  unique(records.bookmarks.map((bookmark) => `${bookmark.sourceWorkId}:${bookmark.sourceBookmarkId}`), "bookmark");
 
   for (const chapter of records.chapters) {
     if (!workIds.has(chapter.sourceWorkId)) throw new PackageValidationError(`Chapter references missing work ${chapter.sourceWorkId}`);
@@ -97,6 +103,32 @@ export function validateReferences(records: TransferRecords): void {
     if (!workIds.has(relation.sourceWorkId)) throw new PackageValidationError(`Series-work references missing work ${relation.sourceWorkId}`);
     if (!seriesIds.has(relation.sourceSeriesId)) throw new PackageValidationError(`Series-work references missing series ${relation.sourceSeriesId}`);
   }
+  for (const comment of records.comments) {
+    if (!workIds.has(comment.sourceWorkId)) throw new PackageValidationError(`Comment references missing work ${comment.sourceWorkId}`);
+  }
+  for (const kudo of records.kudos) {
+    if (!workIds.has(kudo.sourceWorkId)) throw new PackageValidationError(`Kudo references missing work ${kudo.sourceWorkId}`);
+  }
+  for (const bookmark of records.bookmarks) {
+    if (!workIds.has(bookmark.sourceWorkId)) throw new PackageValidationError(`Bookmark references missing work ${bookmark.sourceWorkId}`);
+  }
+}
+
+function normalizeCounts(records: Manifest["records"]): Record<string, number> {
+  return {
+    authors: records.authors,
+    workAuthors: records.workAuthors,
+    works: records.works,
+    chapters: records.chapters,
+    tags: records.tags,
+    workTags: records.workTags,
+    series: records.series,
+    seriesWorks: records.seriesWorks,
+    observations: records.observations,
+    comments: records.comments ?? 0,
+    kudos: records.kudos ?? 0,
+    bookmarks: records.bookmarks ?? 0,
+  };
 }
 
 function expectedCounts(records: TransferRecords): Manifest["records"] {
@@ -110,6 +142,9 @@ function expectedCounts(records: TransferRecords): Manifest["records"] {
     series: records.series.length,
     seriesWorks: records.seriesWorks.length,
     observations: records.observations.length,
+    comments: records.comments.length,
+    kudos: records.kudos.length,
+    bookmarks: records.bookmarks.length,
   };
 }
 
@@ -117,7 +152,7 @@ export async function writeTransferPackage(directory: string, transfer: Transfer
   const manifest = ManifestSchema.parse(transfer.manifest);
   validateReferences(transfer.records);
   const counts = expectedCounts(transfer.records);
-  if (JSON.stringify(manifest.records) !== JSON.stringify(counts)) {
+  if (JSON.stringify(normalizeCounts(manifest.records)) !== JSON.stringify(normalizeCounts(counts))) {
     throw new PackageValidationError(`Manifest record counts do not match supplied records`);
   }
 
@@ -152,7 +187,7 @@ export async function readTransferPackage(directory: string): Promise<TransferPa
 
   validateReferences(records);
   const counts = expectedCounts(records);
-  if (JSON.stringify(manifest.records) !== JSON.stringify(counts)) {
+  if (JSON.stringify(normalizeCounts(manifest.records)) !== JSON.stringify(normalizeCounts(counts))) {
     throw new PackageValidationError(`Manifest record counts do not match package contents`);
   }
   return { manifest, records };

@@ -7,8 +7,11 @@ import { and, asc, eq, inArray, isNull, ne, or } from "drizzle-orm";
 import { FORMAT_VERSION, type TransferRecords } from "@ao3-offsite/contracts";
 import {
   authors,
+  bookmarks,
   chapters,
+  comments,
   exportRuns,
+  kudos,
   observations,
   series,
   seriesWorks,
@@ -120,6 +123,14 @@ export class MariaDbPackageExporter {
     const observationRows = await this.db.select().from(observations).where(and(
       eq(observations.sourceId, options.sourceId), inArray(observations.sourceWorkId, options.sourceWorkIds),
     )).orderBy(asc(observations.observedAt));
+    const commentRows = await this.db.select().from(comments).where(and(
+      eq(comments.hidden, false), inArray(comments.workId, localWorkIds),
+    )).orderBy(asc(comments.workId), asc(comments.id));
+    const kudoRows = await this.db.select().from(kudos)
+      .where(inArray(kudos.workId, localWorkIds)).orderBy(asc(kudos.workId), asc(kudos.id));
+    const bookmarkRows = await this.db.select().from(bookmarks).where(and(
+      eq(bookmarks.hidden, false), inArray(bookmarks.workId, localWorkIds),
+    )).orderBy(asc(bookmarks.workId), asc(bookmarks.id));
 
     const records: TransferRecords = {
       authors: unique(authorRows.map(({ author }) => ({
@@ -184,6 +195,37 @@ export class MariaDbPackageExporter {
         sourceUpdatedAt: observation.sourceUpdatedAt,
         contentHash: observation.contentHash as `sha256:${string}` | null,
       })),
+      comments: commentRows.map((comment) => ({
+        operation: "upsert",
+        sourceWorkId: requiredMap(sourceByLocalWork, comment.workId),
+        sourceCommentId: comment.sourceCommentId,
+        parentSourceCommentId: comment.parentSourceCommentId,
+        authorName: comment.authorName,
+        authorProfileUrl: comment.authorProfileUrl,
+        postedAt: comment.postedAt,
+        depth: comment.depth,
+        fromWorkCreator: comment.fromWorkCreator,
+        textHtml: comment.textHtml,
+        contentHash: comment.contentHash as `sha256:${string}`,
+      })),
+      kudos: kudoRows.map((kudo) => ({
+        sourceWorkId: requiredMap(sourceByLocalWork, kudo.workId),
+        sourceKudoId: kudo.sourceKudoId,
+        authorName: kudo.authorName,
+        authorProfileUrl: kudo.authorProfileUrl,
+        observedAt: kudo.observedAt.toISOString(),
+      })),
+      bookmarks: bookmarkRows.map((bookmark) => ({
+        operation: "upsert",
+        sourceBookmarkId: bookmark.sourceBookmarkId,
+        sourceWorkId: requiredMap(sourceByLocalWork, bookmark.workId),
+        bookmarkerName: bookmark.bookmarkerName,
+        bookmarkerProfileUrl: bookmark.bookmarkerProfileUrl,
+        notesHtml: bookmark.notesHtml,
+        tags: bookmark.tagsJson,
+        updatedAt: bookmark.sourceUpdatedAt,
+        contentHash: bookmark.contentHash as `sha256:${string}`,
+      })),
     };
 
     const packageId = options.packageId ?? randomUUID();
@@ -204,6 +246,9 @@ export class MariaDbPackageExporter {
           tags: records.tags.length, workTags: records.workTags.length,
           series: records.series.length, seriesWorks: records.seriesWorks.length,
           observations: records.observations.length,
+          comments: records.comments.length,
+          kudos: records.kudos.length,
+          bookmarks: records.bookmarks.length,
         },
       },
       records,
