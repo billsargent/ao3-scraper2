@@ -166,7 +166,20 @@ export class JobPlannerWorker {
 
   async run(signal: AbortSignal, idleMilliseconds = 2_000): Promise<void> {
     while (!signal.aborted) {
-      if (!await this.processOne()) await new Promise((resolve) => setTimeout(resolve, idleMilliseconds));
+      try {
+        if (!await this.processOne()) await new Promise((resolve) => setTimeout(resolve, idleMilliseconds));
+      } catch (error) {
+        // A transient DB error must never kill the planner. Log it and continue;
+        // an expired planning lease is reclaimed by the watchdog, and a genuine
+        // planning failure is recorded on the job by processOne's own handling.
+        await this.events?.record({
+          level: "error",
+          event: "planner_loop_error",
+          message: error instanceof Error ? error.message : String(error),
+          context: { error: error instanceof Error ? error.stack ?? error.message : String(error) },
+        });
+        if (!signal.aborted) await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
     }
   }
 }

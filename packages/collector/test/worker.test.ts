@@ -111,4 +111,19 @@ describe("CollectorWorker", () => {
     expect(retryDelay(2, () => 0.5)).toBe(120_000);
     expect(retryDelay(20, () => 0.5)).toBe(21_600_000);
   });
+
+  it("survives a transient DB error in the run loop without crashing", async () => {
+    const { leases, budgets, processors } = dependencies(undefined);
+    const claim = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("Lock wait timeout exceeded"), { code: "ER_LOCK_WAIT_TIMEOUT" }))
+      .mockResolvedValueOnce([]);
+    leases.claim = claim;
+    const controller = new AbortController();
+    const worker = new CollectorWorker(leases, budgets, processors, {
+      workerId: "test-worker",
+      sleep: async () => { controller.abort(); },
+    });
+    await worker.run(controller.signal);
+    expect(claim).toHaveBeenCalledTimes(1);
+  });
 });

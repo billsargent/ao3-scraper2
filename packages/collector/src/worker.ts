@@ -114,32 +114,57 @@ export class CollectorWorker {
   }
 
   async run(signal: AbortSignal): Promise<void> {
-    await this.leases.reclaimExpired(this.now());
+    await this.safe(() => this.leases.reclaimExpired(this.now()), "reclaim_expired");
     let cycles = 0;
     let lastWatchdog = 0;
     let lastAutoFill = 0;
     while (!signal.aborted) {
-      const processed = await this.processOne();
-      if (!processed && !signal.aborted) await this.sleep(this.idleMilliseconds);
+      try {
+        const processed = await this.processOne();
+        if (!processed && !signal.aborted) await this.sleep(this.idleMilliseconds);
+      } catch (error) {
+        // A transient DB error (deadlock/lock-wait) must never kill the worker.
+        // Log it and continue; the lease machinery re-queues any task that was
+        // in flight, and reclaimExpired cleans up later.
+        await this.logWorkerError("collector_error", error);
+        if (!signal.aborted) await this.sleep(2_000);
+      }
       cycles += 1;
       // Periodically heal jobs whose status was corrupted to 'cancelled'
       // while they still have pending tasks (see recoverCancelledJobs).
       if (cycles % 10 === 0 && !signal.aborted) {
-        await this.leases.reclaimExpired(this.now());
-        await this.leases.recoverCancelledJobs(this.now());
+        await this.safe(() => this.leases.reclaimExpired(this.now()), "reclaim_expired");
+        await this.safe(() => this.leases.recoverCancelledJobs(this.now()), "recover_cancelled");
       }
       const nowMs = this.now().getTime();
       // Time-based maintenance: stale-job watchdog and auto-fill kick in every
       // ~10 minutes regardless of how many cycles ran.
       if (this.options.watchdog && nowMs - lastWatchdog >= 10 * 60_000 && !signal.aborted) {
         lastWatchdog = nowMs;
-        await this.options.watchdog(this.now());
+        await this.safe(() => this.options.watchdog!(this.now()), "watchdog");
       }
       if (this.options.autoFill && nowMs - lastAutoFill >= 10 * 60_000 && !signal.aborted) {
         lastAutoFill = nowMs;
-        await this.options.autoFill(this.now());
+        await this.safe(() => this.options.autoFill!(this.now()), "auto_fill");
       }
     }
+  }
+
+  private async safe(operation: () => Promise<unknown>, event: string): Promise<void> {
+    try {
+      await operation();
+    } catch (error) {
+      await this.logWorkerError(`worker_${event}_failed`, error);
+    }
+  }
+
+  private async logWorkerError(event: string, error: unknown): Promise<void> {
+    await this.options.events?.record({
+      level: "error",
+      event,
+      message: error instanceof Error ? error.message : String(error),
+      context: { workerId: this.options.workerId, error: error instanceof Error ? error.stack ?? error.message : String(error) },
+    });
   }
 
   private async waitForRequestReservation(task: ClaimedTask): Promise<RequestReservation> {

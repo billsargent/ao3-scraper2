@@ -303,6 +303,7 @@ export class TaskLeaseStore {
           job.planning_error = NULL,
           job.updated_at = ${now}
       WHERE job.status = 'cancelled'
+        AND job.completed_at IS NULL
         AND (
           job.planning_status IN ('planning', 'leased')
           OR EXISTS (
@@ -359,14 +360,24 @@ export class TaskLeaseStore {
   async cancelJob(jobId: number): Promise<void> {
     await withDatabaseRetry(async () => {
       const now = new Date();
-      await this.db.transaction(async (tx) => {
-        await tx.update(collectionJobs).set({
-          status: "cancelled", planningStatus: "completed", planningLeaseToken: null,
-          planningLeaseExpiresAt: null, completedAt: now, updatedAt: now,
-        }).where(eq(collectionJobs.id, jobId));
-        await tx.update(collectionTasks).set({ status: "cancelled", leaseExpiresAt: null, leasedBy: null, updatedAt: now })
-          .where(and(eq(collectionTasks.jobId, jobId), inArray(collectionTasks.status, ["queued", "retryable_failed"])));
-      });
+      // Mark the job cancelled first (a fast, small UPDATE) so workers stop
+      // claiming its tasks, then cancel its queued/retryable tasks in bounded
+      // batches. A job with millions of tasks must not be torn down with one
+      // giant UPDATE that holds locks (and times out) for minutes.
+      await this.db.update(collectionJobs).set({
+        status: "cancelled", planningStatus: "completed", planningLeaseToken: null,
+        planningLeaseExpiresAt: null, completedAt: now, updatedAt: now,
+      }).where(eq(collectionJobs.id, jobId));
+      for (;;) {
+        const result = await this.db.execute(sql`
+          UPDATE ${collectionTasks}
+          SET status = 'cancelled', lease_expires_at = NULL, leased_by = NULL, updated_at = ${now}
+          WHERE job_id = ${jobId} AND status IN ('queued', 'retryable_failed')
+          ORDER BY id
+          LIMIT 5000
+        `);
+        if (affectedRows(result) < 5000) break;
+      }
     });
   }
 

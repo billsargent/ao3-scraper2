@@ -180,6 +180,24 @@ integration("CollectorStore with MariaDB", () => {
     expect(job.planningStatus).toBe("queued");
   }, 15_000);
 
+  it("does not un-cancel a genuine cancel that has completed_at set", async () => {
+    const jobId = await store.createIdRangeJob(sourceId, { start: 1, end: 2, batchSize: 2 });
+    await store.enqueueWorkIds(jobId, ["1", "2"]);
+    await db.update(collectionJobs).set({ status: "cancelled", planningStatus: "completed", completedAt: new Date() }).where(eq(collectionJobs.id, jobId));
+    await leases.recoverCancelledJobs();
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!.status).toBe("cancelled");
+  }, 15_000);
+
+  it("cancels a job with many tasks in bounded batches", async () => {
+    const jobId = await store.createExplicitIdsJob(sourceId, Array.from({ length: 12000 }, (_unused, i) => String(200000 + i)));
+    await leases.cancelJob(jobId);
+    const counts = await db.select({ status: collectionTasks.status, value: count() }).from(collectionTasks).where(eq(collectionTasks.jobId, jobId)).groupBy(collectionTasks.status);
+    expect(counts.find((row) => row.status === "cancelled")?.value ?? 0).toBe(12000);
+    const job = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, jobId)))[0]!;
+    expect(job.status).toBe("cancelled");
+    expect(job.completedAt).not.toBeNull();
+  }, 15_000);
+
   it("plans large ID ranges asynchronously and resumes idempotently from a cursor", async () => {
     const plannerQueue = new JobPlannerStore(db);
     const planner = new JobPlannerWorker("integration-planner", plannerQueue, 30_000);
