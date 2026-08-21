@@ -186,11 +186,19 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
     onSuccess: async () => { await client.invalidateQueries({ queryKey: ["jobs"] }); onClose(); },
   });
   const count = Math.max(0, end - start + 1);
+  const budgetPaceMs = source.dailyRequestBudget ? (24 * 3600 * 1000) / source.dailyRequestBudget : 0;
+  const effectivePaceMs = Math.max(source.minimumDelayMs, budgetPaceMs);
+  const pace = effectivePaceMs > 0 ? effectivePaceMs : null;
+  const collectEtaMs = pace ? count * pace : 0;
+  const planEtaMs = (count / 50) * 1000;
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form className="modal" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}>
     <div className="modal-head"><div><p className="eyebrow accent">NEW COLLECTION</p><h2>ID range job</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
     <p className="muted">Tasks are created durably. The source is currently <b>{source.paused ? "paused" : "enabled"}</b>, with a {source.minimumDelayMs / 1000}-second minimum delay.</p>
     <div className="form-grid"><label>Starting work ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label><label>Ending work ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label><label>Batch size<input type="number" min="1" max="1000" value={effectiveBatchSize} onChange={(e) => setBatchSize(Number(e.target.value))} /></label></div>
-    <div className="estimate"><span>{formatNumber(count)} tasks</span><span>≈ {duration(count * source.minimumDelayMs)}</span></div>
+    <div className="estimate"><span>{formatNumber(count)} tasks</span><span>≈ {pace ? `${formatLongDuration(collectEtaMs)} to collect` : "no fixed pace"}</span></div>
+    {pace && <p className="muted">Pace ≈ {formatPace(pace)}{source.dailyRequestBudget ? ` · capped at ${formatNumber(source.dailyRequestBudget)}/day` : ""}.</p>}
+    {planEtaMs > 3600_000 && <p className="muted">≈ {formatLongDuration(planEtaMs)} of planning first (single planner worker).</p>}
+    {pace && collectEtaMs > 7 * 86_400_000 && <p className={collectEtaMs > 365 * 86_400_000 ? "form-error" : "form-warning"}>This job {collectEtaMs > 365 * 86_400_000 ? "would take about" : "will take about"} <b>{formatLongDuration(collectEtaMs)}</b> at your current pace — pick a much smaller range near the IDs you want.</p>}
     {count > 10_000_000 && <p className="muted">A single job covers at most 10,000,000 IDs. High work IDs like AO3's current ~91M are supported — start closer to them (e.g. start near 90,800,000) or create multiple jobs.</p>}
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10_000_000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
@@ -506,7 +514,24 @@ const compactNumber = (value: number) => new Intl.NumberFormat(undefined, { nota
 const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
 const formatDateTime = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 function formatBytes(value: number) { const units = ["B", "KB", "MB", "GB"]; let amount = value; let unit = 0; while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit += 1; } return `${amount.toFixed(unit ? 1 : 0)} ${units[unit]}`; }
-function duration(ms: number) { const minutes = Math.ceil(ms / 60000); return minutes < 60 ? `${minutes} min minimum` : `${Math.floor(minutes / 60)}h ${minutes % 60}m minimum`; }
+function formatLongDuration(ms: number): string {
+  const totalMinutes = Math.ceil(ms / 60000);
+  if (totalMinutes < 60) return `${totalMinutes} min`;
+  const totalHours = totalMinutes / 60;
+  if (totalHours < 48) return `${Math.ceil(totalHours)} h`;
+  const totalDays = totalHours / 24;
+  if (totalDays < 365) return `${Math.ceil(totalDays)} days`;
+  return `${(totalDays / 365).toFixed(1)} years`;
+}
+function formatPace(ms: number): string {
+  if (ms < 1000) return "faster than 1 req/sec";
+  if (ms < 60000) return `${Math.round(60000 / ms)} req/min`;
+  const minutes = ms / 60000;
+  if (minutes < 120) return `1 req / ${Math.round(minutes)} min`;
+  const hours = minutes / 60;
+  if (hours < 48) return `1 req / ${hours.toFixed(1)} h`;
+  return `1 req / ${(hours / 24).toFixed(1)} days`;
+}
 function htmlToText(html: string) {
   if (!html) return "";
   return new DOMParser().parseFromString(html, "text/html").body.textContent?.replace(/\s+/g, " ").trim() ?? "";
