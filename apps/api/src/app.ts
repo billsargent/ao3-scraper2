@@ -4,6 +4,7 @@ import { join } from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { z, ZodError } from "zod";
+import { describeError } from "@ao3-offsite/collector";
 import { STANDARD_CHROME_USER_AGENT } from "@ao3-offsite/database";
 import type { ApiServices } from "./services.js";
 
@@ -118,13 +119,13 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     void services.recordEvent({
       level: "error",
       event: "api_request_failed",
-      message: error instanceof Error && error.message ? error.message : "The server could not complete the request.",
+      message: describeError(error),
       context: { method: request.method, url: request.url, requestId: request.id },
     });
     request.log.error({ err: error, requestId: request.id }, "API request failed");
     void reply.status(500).send({
       error: "internal_error",
-      message: error instanceof Error && error.message ? error.message : "The server could not complete the request.",
+      message: describeError(error),
       requestId: request.id,
     });
   });

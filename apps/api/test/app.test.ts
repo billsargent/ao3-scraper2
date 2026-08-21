@@ -209,7 +209,8 @@ describe("Fastify control API", () => {
     const app = buildApp(mock); apps.push(app);
     const response = await app.inject({ method: "POST", url: "/api/jobs/7/pause" });
     expect(response.statusCode).toBe(500);
-    expect(response.json()).toMatchObject({ error: "internal_error", message: "database lock timeout" });
+    expect(response.json()).toMatchObject({ error: "internal_error" });
+    expect(response.json().message).toContain("database lock timeout");
     expect(response.json().requestId).toBeTruthy();
   });
 

@@ -9,6 +9,7 @@ import {
   EventLog,
   ExportQueueStore,
   TaskLeaseStore,
+  isTransientError,
   type AutoFillConfig,
   type EventService,
   type FillResult,
@@ -307,15 +308,43 @@ export class MariaDbApiServices implements ApiServices {
   retryJobFailures(jobId: number): Promise<void> { return this.leases.retryFailures(jobId); }
 
   async deleteJob(jobId: number): Promise<"deleted" | "not_found" | "not_deletable"> {
-    const job = (await this.db.select({ status: collectionJobs.status }).from(collectionJobs).where(eq(collectionJobs.id, jobId)).limit(1))[0];
-    if (!job) return "not_found";
-    if (job.status !== "completed" && job.status !== "cancelled" && job.status !== "failed") return "not_deletable";
-    await this.db.delete(collectionJobs).where(eq(collectionJobs.id, jobId));
-    return "deleted";
+    return withTransientRetry(async () => {
+      const job = (await this.db.select({ status: collectionJobs.status }).from(collectionJobs).where(eq(collectionJobs.id, jobId)).limit(1))[0];
+      if (!job) return "not_found";
+      if (job.status !== "completed" && job.status !== "cancelled" && job.status !== "failed") return "not_deletable";
+      await this.deleteTasksForJobs([jobId]);
+      await this.db.delete(collectionJobs).where(eq(collectionJobs.id, jobId));
+      return "deleted";
+    });
   }
 
   async clearCancelledJobs(): Promise<number> {
-    return affectedRows(await this.db.delete(collectionJobs).where(eq(collectionJobs.status, "cancelled")));
+    return withTransientRetry(async () => {
+      const cancelled = await this.db.select({ id: collectionJobs.id }).from(collectionJobs).where(eq(collectionJobs.status, "cancelled"));
+      if (cancelled.length === 0) return 0;
+      await this.deleteTasksForJobs(cancelled.map((row) => row.id));
+      return affectedRows(await this.db.delete(collectionJobs).where(eq(collectionJobs.status, "cancelled")));
+    });
+  }
+
+  /**
+   * Delete a job's tasks in bounded batches instead of relying on the cascade
+   * (one giant DELETE per job). A job with millions of tasks would otherwise
+   * hold locks on the tasks table for a long time and can hit lock-wait or
+   * binlog limits; batching keeps each statement small and quick.
+   */
+  private async deleteTasksForJobs(jobIds: number[]): Promise<void> {
+    if (jobIds.length === 0) return;
+    const jobFilter = sql`${collectionTasks.jobId} IN (${sql.join(jobIds.map((id) => sql`${id}`), sql`, `)})`;
+    for (;;) {
+      const result = await this.db.execute(sql`
+        DELETE FROM ${collectionTasks}
+        WHERE ${jobFilter}
+        ORDER BY ${collectionTasks.id}
+        LIMIT 5000
+      `);
+      if (affectedRows(result) < 5000) break;
+    }
   }
 
   async retryPlanning(jobId: number): Promise<"ok" | "not_found" | "already_completed"> {
@@ -588,4 +617,18 @@ function affectedRows(result: unknown): number {
   return candidate && typeof candidate === "object" && "affectedRows" in candidate
     ? Number((candidate as { affectedRows: unknown }).affectedRows)
     : 0;
+}
+
+async function withTransientRetry<T>(operation: () => Promise<T>, maximumAttempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientError(error) || attempt === maximumAttempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+    }
+  }
+  throw lastError;
 }
