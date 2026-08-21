@@ -336,3 +336,13 @@ export const workerEvents = mysqlTable("worker_events", {
   index("worker_events_service_time").on(table.service, table.createdAt),
   index("worker_events_created").on(table.createdAt),
 ]);
+
+export const autoFill = mysqlTable("auto_fill", {
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  frontierStart: bigint("frontier_start", { mode: "number", unsigned: true }).notNull().default(1),
+  batchSize: int("batch_size", { unsigned: true }).notNull().default(200),
+  lastJobId: bigint("last_job_id", { mode: "number", unsigned: true }),
+  lastRunAt: datetime("last_run_at", { mode: "date", fsp: 3 }),
+  ...timestamps,
+}, (table) => [primaryKey({ columns: [table.sourceId] })]);

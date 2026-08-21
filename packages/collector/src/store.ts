@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, count, eq, notInArray } from "drizzle-orm";
+import { and, count, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Observation, TransferRecords } from "@ao3-offsite/contracts";
 import {
   authors,
@@ -26,6 +26,28 @@ function requiredRow<T>(rows: T[], description: string): T {
   return row;
 }
 
+function firstRow(result: unknown): Record<string, unknown> {
+  const candidate = Array.isArray(result) ? result[0] : result;
+  if (Array.isArray(candidate)) return (candidate[0] as Record<string, unknown>) ?? {};
+  return (candidate as Record<string, unknown>) ?? {};
+}
+
+export interface GapCoverage {
+  start: number;
+  end: number;
+  total: number;
+  collected: number;
+  attempted: number;
+  notFound: number;
+  missing: number;
+}
+
+export interface FillResult {
+  jobId: number | null;
+  enqueued: number;
+  nextCursor: number | null;
+}
+
 export class CollectorStore {
   constructor(private readonly db: CollectorDatabase) {}
 
@@ -38,6 +60,23 @@ export class CollectorStore {
     }).$returningId();
     const row = requiredRow(result, "created collection job");
     return row.id;
+  }
+
+  /**
+   * Create a job whose tasks are pre-enqueued (no planning pass needed) for an
+   * explicit list of source work IDs. Used for gap-filling.
+   */
+  async createExplicitIdsJob(sourceId: number, sourceWorkIds: string[]): Promise<number> {
+    const result = await this.db.insert(collectionJobs).values({
+      sourceId,
+      type: "explicit_ids",
+      status: "queued",
+      planningStatus: "completed",
+      configuration: { count: sourceWorkIds.length },
+    }).$returningId();
+    const jobId = requiredRow(result, "created explicit_ids job").id;
+    await this.enqueueWorkIds(jobId, sourceWorkIds);
+    return jobId;
   }
 
   async enqueueWorkIds(jobId: number, sourceWorkIds: string[]): Promise<void> {
@@ -55,6 +94,75 @@ export class CollectorStore {
         .set({ discoveredCount: taskCount.value, updatedAt: now })
         .where(eq(collectionJobs.id, jobId));
     });
+  }
+
+  /**
+   * Return the first `limit` work IDs in [start, end] that we have not yet
+   * collected, queued anywhere, or recorded as not_found (AO3 never reuses
+   * IDs, so a 404 means "skip forever"). Also returns the next cursor to scan
+   * from, so a caller can advance a frontier without re-scanning.
+   */
+  async findGaps(sourceId: number, start: number, end: number, limit: number): Promise<{ ids: string[]; nextCursor: number | null }> {
+    const ids: string[] = [];
+    let cursor = start;
+    const windowSize = Math.max(limit * 3, 3_000);
+    const maxScanned = Math.max(limit * 10, 10_000);
+    let scanned = 0;
+    while (cursor <= end && ids.length < limit && scanned < maxScanned) {
+      const windowEnd = Math.min(end, cursor + windowSize - 1);
+      const handled = await this.handledIdsInWindow(sourceId, cursor, windowEnd);
+      for (let id = cursor; id <= windowEnd && ids.length < limit && scanned < maxScanned; id += 1) {
+        scanned += 1;
+        if (!handled.has(id)) ids.push(String(id));
+      }
+      cursor = windowEnd + 1;
+    }
+    return { ids, nextCursor: cursor <= end ? cursor : null };
+  }
+
+  private async handledIdsInWindow(sourceId: number, start: number, end: number): Promise<Set<number>> {
+    const set = new Set<number>();
+    const inWindow = sql`+ 0 BETWEEN ${start} AND ${end}`;
+    const worksRows = await this.db.select({ id: works.sourceWorkId }).from(works).where(and(
+      eq(works.sourceId, sourceId), sql`${works.sourceWorkId} ${inWindow}`,
+    ));
+    for (const row of worksRows) set.add(Number(row.id));
+    const notFoundRows = await this.db.select({ id: observations.sourceWorkId }).from(observations).where(and(
+      eq(observations.sourceId, sourceId), eq(observations.availability, "not_found"), sql`${observations.sourceWorkId} ${inWindow}`,
+    ));
+    for (const row of notFoundRows) set.add(Number(row.id));
+    const taskRows = await this.db.select({ id: collectionTasks.sourceWorkId }).from(collectionTasks).where(sql`${collectionTasks.sourceWorkId} ${inWindow}`);
+    for (const row of taskRows) set.add(Number(row.id));
+    return set;
+  }
+
+  async coverage(sourceId: number, start: number, end: number): Promise<GapCoverage> {
+    const total = Math.max(0, end - start + 1);
+    const row = firstRow(await this.db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM ${works} WHERE ${works.sourceId} = ${sourceId} AND ${works.sourceWorkId} + 0 BETWEEN ${start} AND ${end}) AS collected,
+        (SELECT COUNT(*) FROM ${observations} WHERE ${observations.sourceId} = ${sourceId} AND ${observations.availability} = 'not_found' AND ${observations.sourceWorkId} + 0 BETWEEN ${start} AND ${end}) AS not_found,
+        (SELECT COUNT(DISTINCT ${collectionTasks.sourceWorkId}) FROM ${collectionTasks} WHERE ${collectionTasks.sourceWorkId} + 0 BETWEEN ${start} AND ${end}) AS attempted,
+        (SELECT COUNT(*) FROM (
+          SELECT ${works.sourceWorkId} FROM ${works} WHERE ${works.sourceId} = ${sourceId} AND ${works.sourceWorkId} + 0 BETWEEN ${start} AND ${end}
+          UNION
+          SELECT ${observations.sourceWorkId} FROM ${observations} WHERE ${observations.sourceId} = ${sourceId} AND ${observations.availability} = 'not_found' AND ${observations.sourceWorkId} + 0 BETWEEN ${start} AND ${end}
+          UNION
+          SELECT ${collectionTasks.sourceWorkId} FROM ${collectionTasks} WHERE ${collectionTasks.sourceWorkId} + 0 BETWEEN ${start} AND ${end}
+        ) AS handled) AS handled
+    `));
+    const collected = Number(row.collected ?? 0);
+    const notFound = Number(row.not_found ?? 0);
+    const attempted = Number(row.attempted ?? 0);
+    const handled = Number(row.handled ?? 0);
+    return { start, end, total, collected, attempted, notFound, missing: Math.max(0, total - handled) };
+  }
+
+  async countPendingTasks(sourceId: number): Promise<number> {
+    const rows = await this.db.select({ value: count() }).from(collectionTasks)
+      .innerJoin(collectionJobs, eq(collectionTasks.jobId, collectionJobs.id))
+      .where(and(eq(collectionJobs.sourceId, sourceId), inArray(collectionTasks.status, ["queued", "retryable_failed"])));
+    return rows[0]?.value ?? 0;
   }
 
   async recordSnapshot(input: {

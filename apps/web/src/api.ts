@@ -309,6 +309,31 @@ export interface DiagnosticsBundle {
   logs: WorkerEvent[];
 }
 
+export interface GapCoverage {
+  start: number;
+  end: number;
+  total: number;
+  collected: number;
+  attempted: number;
+  notFound: number;
+  missing: number;
+}
+
+export interface FillResult {
+  jobId: number | null;
+  enqueued: number;
+  nextCursor: number | null;
+}
+
+export interface AutoFillConfig {
+  sourceId: number;
+  enabled: boolean;
+  frontierStart: number;
+  batchSize: number;
+  lastJobId: number | null;
+  lastRunAt: string | null;
+}
+
 export const api = {
   health: () => request<{ status: string; commit: string }>("/api/health/ready"),
   statistics: () => request<{ statistics: CollectorStatistics }>("/api/statistics"),
@@ -349,6 +374,10 @@ export const api = {
   fetches: (page = 0, limit = 25) => request<{ fetches: FetchSnapshot[]; total: number; limit: number; offset: number }>(`/api/fetches?limit=${limit}&offset=${page * limit}`),
   logs: (service: WorkerEvent["service"] | "all" = "all", limit = 100) => request<{ logs: WorkerEvent[]; service: string; limit: number; offset: number }>(`/api/logs?service=${service}&limit=${limit}&offset=0`),
   diagnostics: () => request<DiagnosticsBundle>("/api/diagnostics"),
+  gapCoverage: (sourceId: number, start: number, end: number) => request<{ coverage: GapCoverage }>(`/api/jobs/gaps?sourceId=${sourceId}&start=${start}&end=${end}`),
+  fillGaps: (body: { sourceId: number; start: number; end: number; limit: number }) => request<FillResult>("/api/jobs/fill-gaps", { method: "POST", body: JSON.stringify(body) }),
+  getAutoFill: (sourceId: number) => request<{ autoFill: AutoFillConfig }>(`/api/auto-fill/${sourceId}`),
+  updateAutoFill: (sourceId: number, body: { enabled?: boolean; frontierStart?: number; batchSize?: number }) => request<{ autoFill: AutoFillConfig }>(`/api/auto-fill/${sourceId}`, { method: "PUT", body: JSON.stringify(body) }),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

@@ -1,7 +1,9 @@
 import { hostname } from "node:os";
 import { resolve } from "node:path";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  AutoFillStore,
   CollectorStore,
   CollectorWorker,
   ContentAddressedBlobStore,
@@ -12,7 +14,7 @@ import {
   type ClaimedTask,
   type WorkProcessorFactory,
 } from "@ao3-offsite/collector";
-import { createDatabase } from "@ao3-offsite/database";
+import { collectionJobs, createDatabase, sources } from "@ao3-offsite/database";
 import { PoliteSourceClient } from "@ao3-offsite/scraper-core";
 
 const configuration = z.object({
@@ -26,6 +28,7 @@ const { db, pool } = createDatabase(configuration.COLLECTOR_DATABASE_URL);
 const store = new CollectorStore(db);
 const blobs = new ContentAddressedBlobStore(resolve(configuration.COLLECTOR_BLOB_DIRECTORY));
 const budgets = new SourceBudgetStore(db);
+const autoFillStore = new AutoFillStore(db);
 const events = new EventLog(db, { service: "collector", workerId: configuration.WORKER_ID ?? `${hostname()}:${process.pid}` });
 const processors: WorkProcessorFactory = {
   create(task: ClaimedTask) {
@@ -63,14 +66,62 @@ const processors: WorkProcessorFactory = {
     );
   },
 };
+const leases = new TaskLeaseStore(db, events);
 const worker = new CollectorWorker(
-  new TaskLeaseStore(db, events),
+  leases,
   budgets,
   processors,
   {
     workerId: configuration.WORKER_ID ?? `${hostname()}:${process.pid}`,
     maximumFailureAttempts: configuration.WORKER_MAXIMUM_FAILURE_ATTEMPTS,
     events,
+    watchdog: async () => {
+      // Requeue planning leases that expired while the planner was down, and
+      // report jobs that are running but have stopped making progress.
+      await leases.reclaimExpiredPlanning();
+      await leases.detectStalledJobs();
+    },
+    autoFill: async () => {
+      try {
+        const sourceRow = (await db.select({ id: sources.id, paused: sources.paused }).from(sources).orderBy(sources.id).limit(1))[0];
+        if (!sourceRow || sourceRow.paused) return;
+        const config = await autoFillStore.get(sourceRow.id);
+        if (!config.enabled) return;
+        // Don't pile up while the last auto-created job is still active.
+        if (config.lastJobId) {
+          const last = (await db.select({ status: collectionJobs.status }).from(collectionJobs).where(eq(collectionJobs.id, config.lastJobId)).limit(1))[0];
+          if (last && ["queued", "running"].includes(last.status)) return;
+        }
+        // Keep the queued backlog bounded to ~2x the batch size.
+        const pending = await store.countPendingTasks(sourceRow.id);
+        if (pending > config.batchSize * 2) return;
+        const { ids, nextCursor } = await store.findGaps(
+          sourceRow.id,
+          config.frontierStart,
+          config.frontierStart + config.batchSize * 100,
+          config.batchSize,
+        );
+        if (ids.length === 0) {
+          await autoFillStore.update(sourceRow.id, { frontierStart: nextCursor ?? config.frontierStart + config.batchSize * 100 });
+          return;
+        }
+        const jobId = await store.createExplicitIdsJob(sourceRow.id, ids);
+        await autoFillStore.recordRun(sourceRow.id, jobId, nextCursor);
+        await events.record({
+          level: "info",
+          event: "auto_fill_created",
+          message: `Auto-queued ${ids.length} missing works into job #${jobId}.`,
+          context: { jobId, enqueued: ids.length, nextCursor, sourceId: sourceRow.id },
+        });
+      } catch (error) {
+        await events.record({
+          level: "error",
+          event: "auto_fill_failed",
+          message: `Auto-fill failed: ${error instanceof Error ? error.message : String(error)}`,
+          context: { error: error instanceof Error ? error.stack ?? error.message : String(error) },
+        });
+      }
+    },
   },
 );
 const controller = new AbortController();

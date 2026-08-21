@@ -18,6 +18,8 @@ export interface WorkerOptions {
   idleMilliseconds?: number;
   maximumFailureAttempts?: number;
   events?: EventLog;
+  watchdog?: (now: Date) => Promise<void>;
+  autoFill?: (now: Date) => Promise<void>;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   random?: () => number;
@@ -114,6 +116,8 @@ export class CollectorWorker {
   async run(signal: AbortSignal): Promise<void> {
     await this.leases.reclaimExpired(this.now());
     let cycles = 0;
+    let lastWatchdog = 0;
+    let lastAutoFill = 0;
     while (!signal.aborted) {
       const processed = await this.processOne();
       if (!processed && !signal.aborted) await this.sleep(this.idleMilliseconds);
@@ -123,6 +127,17 @@ export class CollectorWorker {
       if (cycles % 10 === 0 && !signal.aborted) {
         await this.leases.reclaimExpired(this.now());
         await this.leases.recoverCancelledJobs(this.now());
+      }
+      const nowMs = this.now().getTime();
+      // Time-based maintenance: stale-job watchdog and auto-fill kick in every
+      // ~10 minutes regardless of how many cycles ran.
+      if (this.options.watchdog && nowMs - lastWatchdog >= 10 * 60_000 && !signal.aborted) {
+        lastWatchdog = nowMs;
+        await this.options.watchdog(this.now());
+      }
+      if (this.options.autoFill && nowMs - lastAutoFill >= 10 * 60_000 && !signal.aborted) {
+        lastAutoFill = nowMs;
+        await this.options.autoFill(this.now());
       }
     }
   }

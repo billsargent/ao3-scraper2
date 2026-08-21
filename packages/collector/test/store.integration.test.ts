@@ -28,6 +28,7 @@ import {
 import { readTransferPackage } from "@ao3-offsite/package-tools";
 import { parseEntireWorkHtml, PoliteSourceClient } from "@ao3-offsite/scraper-core";
 import { ContentAddressedBlobStore } from "../src/blob-store.js";
+import { AutoFillStore } from "../src/auto-fill.js";
 import { ExportQueueStore } from "../src/export-queue.js";
 import { ExportWorker } from "../src/export-worker.js";
 import { MariaDbPackageExporter } from "../src/exporter.js";
@@ -37,6 +38,7 @@ import { SourceBudgetStore } from "../src/source-budget-store.js";
 import { CollectorStore } from "../src/store.js";
 import { TaskLeaseStore } from "../src/task-store.js";
 import { CollectorWorker } from "../src/worker.js";
+import type { EventLog } from "../src/event-log.js";
 
 const fixtureUrl = new URL("../../scraper-core/test/fixtures/work-entire.html", import.meta.url);
 const databaseUrl = process.env.COLLECTOR_DATABASE_URL;
@@ -527,4 +529,64 @@ integration("CollectorStore with MariaDB", () => {
       await rm(exportRoot, { recursive: true, force: true });
     }
   });
+
+  it("creates explicit-IDs jobs and finds gaps excluding handled IDs", async () => {
+    await db.insert(works).values({
+      sourceId, sourceWorkId: "2", sourceUrl: "https://example/2", title: "Two",
+      summaryHtml: "", notesHtml: "", endNotesHtml: "", languageCode: "en",
+      complete: true, restricted: false, contentHash: `sha256:${'a'.repeat(64)}`,
+      firstSeenAt: new Date(), lastSeenAt: new Date(),
+    });
+    await db.insert(observations).values({
+      sourceId, sourceWorkId: "3", observedAt: new Date(), availability: "not_found", httpStatus: 404, sourceUpdatedAt: null, contentHash: null,
+    });
+    await store.createExplicitIdsJob(sourceId, ["4"]);
+
+    const { ids, nextCursor } = await store.findGaps(sourceId, 1, 10, 5);
+    expect(ids).toEqual(["1", "5", "6", "7", "8"]);
+    expect(ids).not.toContain("2");
+    expect(ids).not.toContain("3");
+    expect(ids).not.toContain("4");
+    expect(nextCursor).toBeNull(); // whole [1..10] range was scanned
+
+    const cov = await store.coverage(sourceId, 1, 10);
+    expect(cov).toMatchObject({ total: 10, collected: 1, notFound: 1, attempted: 1, missing: 7 });
+  }, 15_000);
+
+  it("persists and advances the auto-fill configuration", async () => {
+    const auto = new AutoFillStore(db);
+    expect((await auto.get(sourceId)).enabled).toBe(false);
+    await auto.update(sourceId, { enabled: true, batchSize: 50 });
+    expect((await auto.get(sourceId))).toMatchObject({ enabled: true, batchSize: 50 });
+    const jobId = await store.createExplicitIdsJob(sourceId, ["1", "2"]);
+    await auto.recordRun(sourceId, jobId, 3);
+    const afterRun = await auto.get(sourceId);
+    expect(afterRun.lastJobId).toBe(jobId);
+    expect(afterRun.frontierStart).toBe(3);
+    expect(afterRun.lastRunAt).not.toBeNull();
+  }, 15_000);
+
+  it("requeues expired planning leases and reports stalled running jobs", async () => {
+    const captured: Array<{ event: string; message?: string; context?: Record<string, unknown> }> = [];
+    const events = { record: async (input: { event: string; message?: string; context?: Record<string, unknown> }) => { captured.push(input); } } as unknown as EventLog;
+    const leaseStore = new TaskLeaseStore(db, events);
+
+    const planningJob = await store.createIdRangeJob(sourceId, { start: 1, end: 100, batchSize: 10 });
+    await db.update(collectionJobs).set({
+      status: "running", planningStatus: "planning", planningLeaseToken: "dead-worker:abc",
+      planningLeaseExpiresAt: new Date(Date.now() - 60_000), updatedAt: new Date(Date.now() - 2 * 60_000),
+    }).where(eq(collectionJobs.id, planningJob));
+    expect(await leaseStore.reclaimExpiredPlanning()).toBe(1);
+    const reclaimed = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, planningJob)))[0]!;
+    expect(reclaimed.planningStatus).toBe("queued");
+    expect(reclaimed.planningLeaseToken).toBeNull();
+
+    const stalledJob = await store.createIdRangeJob(sourceId, { start: 1, end: 3, batchSize: 2 });
+    await store.enqueueWorkIds(stalledJob, ["1", "2"]);
+    await db.update(collectionJobs).set({
+      status: "running", planningStatus: "completed", updatedAt: new Date(Date.now() - 30 * 60_000),
+    }).where(eq(collectionJobs.id, stalledJob));
+    await leaseStore.detectStalledJobs(new Date(), 10 * 60_000);
+    expect(captured.some((entry) => entry.event === "job_stalled" && String(entry.context?.reason) === "worker_stalled")).toBe(true);
+  }, 15_000);
 });

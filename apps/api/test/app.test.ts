@@ -37,6 +37,10 @@ function services(): ApiServices {
     listFetches: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listEvents: vi.fn().mockResolvedValue([]),
     recordEvent: vi.fn().mockResolvedValue(undefined),
+    gapCoverage: vi.fn().mockResolvedValue({ start: 1, end: 100, total: 100, collected: 10, attempted: 20, notFound: 5, missing: 70 }),
+    fillGaps: vi.fn().mockResolvedValue({ jobId: 50, enqueued: 12, nextCursor: 101 }),
+    getAutoFill: vi.fn().mockResolvedValue({ sourceId: 1, enabled: false, frontierStart: 1, batchSize: 200, lastJobId: null, lastRunAt: null }),
+    updateAutoFill: vi.fn().mockResolvedValue({ sourceId: 1, enabled: true, frontierStart: 1, batchSize: 200, lastJobId: null, lastRunAt: null }),
     diagnostics: vi.fn().mockResolvedValue({ generatedAt: "2026-08-21T00:00:00.000Z", system: { dataDirectory: "./data", exportDirectory: "./data/exports" }, sources: [{ id: 1, key: "ao3" }], jobs: [], failures: [], logs: [] }),
   };
 }
@@ -111,6 +115,27 @@ describe("Fastify control API", () => {
       system: { dataDirectory: "./data", authEnabled: false, appCommit: "abc123" },
       jobs: [], failures: [], logs: [],
     });
+  });
+
+  it("reports gap coverage and queues missing works", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const gaps = await app.inject({ method: "GET", url: "/api/jobs/gaps?sourceId=1&start=1000&end=2000" });
+    expect(gaps.statusCode).toBe(200);
+    expect(mock.gapCoverage).toHaveBeenCalledWith(1, 1000, 2000);
+    const fill = await app.inject({ method: "POST", url: "/api/jobs/fill-gaps", payload: { sourceId: 1, start: 1000, end: 2000, limit: 25 } });
+    expect(fill.statusCode).toBe(200);
+    expect(mock.fillGaps).toHaveBeenCalledWith(1, 1000, 2000, 25);
+    expect((await app.inject({ method: "GET", url: "/api/jobs/gaps?sourceId=1&start=2000&end=1000" })).statusCode).toBe(400);
+  });
+
+  it("reads and updates the auto-fill configuration", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const get = await app.inject({ method: "GET", url: "/api/auto-fill/1" });
+    expect(get.statusCode).toBe(200);
+    expect(mock.getAutoFill).toHaveBeenCalledWith(1);
+    const put = await app.inject({ method: "PUT", url: "/api/auto-fill/1", payload: { enabled: true, batchSize: 100 } });
+    expect(put.statusCode).toBe(200);
+    expect(mock.updateAutoFill).toHaveBeenCalledWith(1, { enabled: true, batchSize: 100 });
   });
 
   it("reports process and database health", async () => {

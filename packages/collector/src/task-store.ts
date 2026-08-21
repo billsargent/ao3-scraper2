@@ -43,6 +43,8 @@ export type Completion =
   | { status: "cancelled"; message?: string };
 
 export class TaskLeaseStore {
+  private readonly stalledReports = new Map<number, number>();
+
   constructor(private readonly db: CollectorDatabase, private readonly events?: EventLog) {}
 
   async claim(workerId: string, limit = 1, leaseMilliseconds = 120_000): Promise<ClaimedTask[]> {
@@ -197,6 +199,89 @@ export class TaskLeaseStore {
         AND task.lease_expires_at <= ${now}
         AND job.status IN ('queued', 'running')
     `);
+  }
+
+  /**
+   * Requeue planning for any job whose planning lease expired. A planning
+   * lease is only refreshed by the planner process, so if the planner dies
+   * mid-planning a job can sit with a stale lease forever. This watchdog kick
+   * makes planning re-claimable regardless of whether the planner is alive.
+   */
+  async reclaimExpiredPlanning(now = new Date()): Promise<number> {
+    const result = await this.db.execute(sql`
+      UPDATE collection_jobs
+      SET planning_status = 'queued',
+          planning_lease_token = NULL,
+          planning_lease_expires_at = NULL,
+          planning_error = NULL,
+          updated_at = ${now}
+      WHERE planning_status IN ('planning', 'leased')
+        AND planning_lease_expires_at <= ${now}
+        AND status IN ('queued', 'running')
+    `);
+    const reclaimed = affectedRows(result);
+    if (reclaimed > 0) {
+      await this.events?.record({
+        level: "warn",
+        event: "planning_reclaimed",
+        message: `Requeued ${reclaimed} job(s) whose planning lease expired (planner interrupted).`,
+        context: { reclaimed },
+      });
+    }
+    return reclaimed;
+  }
+
+  /**
+   * Detect jobs that are queued/running but have not made progress within the
+   * threshold, classify why, and emit a job_stalled event (deduplicated per
+   * job so it is not re-reported until the threshold elapses again).
+   */
+  async detectStalledJobs(now = new Date(), thresholdMs = 30 * 60_000): Promise<void> {
+    const staleBefore = new Date(now.getTime() - thresholdMs);
+    const candidates = await this.db.select({
+      id: collectionJobs.id,
+      sourceId: collectionJobs.sourceId,
+      status: collectionJobs.status,
+      planningStatus: collectionJobs.planningStatus,
+      updatedAt: collectionJobs.updatedAt,
+    }).from(collectionJobs).where(and(
+      inArray(collectionJobs.status, ["queued", "running"]),
+      sql`${collectionJobs.updatedAt} <= ${staleBefore}`,
+    )).limit(200);
+
+    for (const job of candidates) {
+      const reason = await this.classifyStall(job, now);
+      if (!reason) continue;
+      const lastReported = this.stalledReports.get(job.id);
+      if (lastReported && now.getTime() - lastReported < thresholdMs) continue;
+      this.stalledReports.set(job.id, now.getTime());
+      await this.events?.record({
+        level: "warn",
+        event: "job_stalled",
+        message: `Job #${job.id} has not made progress in ${Math.round(thresholdMs / 60_000)}m: ${reason}.`,
+        context: { jobId: job.id, status: job.status, planningStatus: job.planningStatus, reason, lastActivity: job.updatedAt },
+      });
+    }
+  }
+
+  private async classifyStall(
+    job: { id: number; sourceId: number; status: string; planningStatus: string; updatedAt: Date },
+    now: Date,
+  ): Promise<string | null> {
+    const source = (await this.db.select({ paused: sources.paused }).from(sources).where(eq(sources.id, job.sourceId)).limit(1))[0];
+    if (source?.paused) return "source_paused";
+    if (job.planningStatus !== "completed") return "planning_stalled";
+    const anyPending = (await this.db.select({ id: collectionTasks.id }).from(collectionTasks).where(and(
+      eq(collectionTasks.jobId, job.id),
+      inArray(collectionTasks.status, ["queued", "retryable_failed"]),
+    )).limit(1)).length > 0;
+    if (!anyPending) return null;
+    const anyClaimable = (await this.db.select({ id: collectionTasks.id }).from(collectionTasks).where(and(
+      eq(collectionTasks.jobId, job.id),
+      inArray(collectionTasks.status, ["queued", "retryable_failed"]),
+      sql`${collectionTasks.availableAt} <= ${now}`,
+    )).limit(1)).length > 0;
+    return anyClaimable ? "worker_stalled" : "retry_backoff";
   }
 
   /**

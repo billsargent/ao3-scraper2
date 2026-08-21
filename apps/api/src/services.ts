@@ -3,7 +3,18 @@ import { createReadStream } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
-import { CollectorStore, EventLog, ExportQueueStore, TaskLeaseStore, type EventService, type WorkerEventRow } from "@ao3-offsite/collector";
+import {
+  AutoFillStore,
+  CollectorStore,
+  EventLog,
+  ExportQueueStore,
+  TaskLeaseStore,
+  type AutoFillConfig,
+  type EventService,
+  type FillResult,
+  type GapCoverage,
+  type WorkerEventRow,
+} from "@ao3-offsite/collector";
 import {
   authors,
   bookmarks,
@@ -111,6 +122,10 @@ export interface ApiServices {
   listEvents(service: EventService | "all", limit: number, offset: number): Promise<WorkerEventRow[]>;
   recordEvent(input: { level?: "debug" | "info" | "warn" | "error"; event: string; message?: string; context?: Record<string, unknown> }): Promise<void>;
   diagnostics(): Promise<DiagnosticsSnapshot>;
+  gapCoverage(sourceId: number, start: number, end: number): Promise<GapCoverage>;
+  fillGaps(sourceId: number, start: number, end: number, limit: number): Promise<FillResult>;
+  getAutoFill(sourceId: number): Promise<AutoFillConfig>;
+  updateAutoFill(sourceId: number, update: { enabled?: boolean | undefined; frontierStart?: number | undefined; batchSize?: number | undefined }): Promise<AutoFillConfig>;
   statistics(): Promise<CollectorStatistics>;
 }
 
@@ -119,12 +134,14 @@ export class MariaDbApiServices implements ApiServices {
   private readonly leases: TaskLeaseStore;
   private readonly exports: ExportQueueStore;
   private readonly events: EventLog;
+  private readonly autoFill: AutoFillStore;
 
   constructor(private readonly db: CollectorDatabase, private readonly exportRoot = "./data/exports") {
     this.collector = new CollectorStore(db);
     this.leases = new TaskLeaseStore(db);
     this.exports = new ExportQueueStore(db);
     this.events = new EventLog(db, { service: "api" });
+    this.autoFill = new AutoFillStore(db);
   }
 
   async ready(): Promise<boolean> {
@@ -224,6 +241,26 @@ export class MariaDbApiServices implements ApiServices {
       failures: failures.items,
       logs,
     };
+  }
+
+  gapCoverage(sourceId: number, start: number, end: number): Promise<GapCoverage> {
+    return this.collector.coverage(sourceId, start, end);
+  }
+
+  fillGaps(sourceId: number, start: number, end: number, limit: number): Promise<FillResult> {
+    return this.collector.findGaps(sourceId, start, end, limit).then(async ({ ids, nextCursor }) => {
+      if (ids.length === 0) return { jobId: null, enqueued: 0, nextCursor };
+      const jobId = await this.collector.createExplicitIdsJob(sourceId, ids);
+      return { jobId, enqueued: ids.length, nextCursor };
+    });
+  }
+
+  getAutoFill(sourceId: number): Promise<AutoFillConfig> {
+    return this.autoFill.get(sourceId);
+  }
+
+  updateAutoFill(sourceId: number, update: { enabled?: boolean | undefined; frontierStart?: number | undefined; batchSize?: number | undefined }): Promise<AutoFillConfig> {
+    return this.autoFill.update(sourceId, update);
   }
 
   async createSource(input: SourceCreate): Promise<number> {

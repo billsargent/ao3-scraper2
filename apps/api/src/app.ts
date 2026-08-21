@@ -16,6 +16,20 @@ const WorksQuery = Pagination.extend({ q: z.string().max(200).default("") });
 const LogsQuery = Pagination.extend({
   service: z.enum(["all", "api", "collector", "planner", "export", "system"]).default("all"),
 });
+const GapParams = z.object({
+  sourceId: z.coerce.number().int().positive(),
+  start: z.coerce.number().int().positive(),
+  end: z.coerce.number().int().positive(),
+});
+const GapQuery = GapParams.refine((body) => body.end >= body.start, { path: ["end"], message: "end must be >= start" });
+const FillGapsBody = GapParams.extend({ limit: z.number().int().min(1).max(5000).default(500) })
+  .refine((body) => body.end >= body.start, { path: ["end"], message: "end must be >= start" });
+const AutoFillBody = z.object({
+  enabled: z.boolean().optional(),
+  frontierStart: z.number().int().positive().optional(),
+  batchSize: z.number().int().min(1).max(5000).optional(),
+});
+const SourceIdParams = z.object({ sourceId: z.coerce.number().int().positive() });
 const ChapterParams = z.object({
   id: z.coerce.number().int().positive(),
   chapterId: z.coerce.number().int().positive(),
@@ -229,6 +243,22 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
   app.get("/api/jobs", async (request) => {
     const { limit, offset } = Pagination.parse(request.query);
     return { jobs: await services.listJobs(limit, offset), limit, offset };
+  });
+  app.get("/api/jobs/gaps", async (request) => {
+    const { sourceId, start, end } = GapQuery.parse(request.query);
+    return { coverage: await services.gapCoverage(sourceId, start, end) };
+  });
+  app.post("/api/jobs/fill-gaps", async (request) => {
+    const body = FillGapsBody.parse(request.body);
+    return services.fillGaps(body.sourceId, body.start, body.end, body.limit);
+  });
+  app.get("/api/auto-fill/:sourceId", async (request) => {
+    const { sourceId } = SourceIdParams.parse(request.params);
+    return { autoFill: await services.getAutoFill(sourceId) };
+  });
+  app.put("/api/auto-fill/:sourceId", async (request) => {
+    const { sourceId } = SourceIdParams.parse(request.params);
+    return { autoFill: await services.updateAutoFill(sourceId, AutoFillBody.parse(request.body)) };
   });
   app.get("/api/jobs/:id", async (request, reply) => {
     const { id } = IdParams.parse(request.params);

@@ -1,8 +1,9 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type Source, type WorkDetail, type WorkerEvent } from "./api.js";
+import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type FillResult, type GapCoverage, type Source, type WorkDetail, type WorkerEvent } from "./api.js";
 
-type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings" | "debug";
+const autofillPage = "autofill";
+type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings" | "debug" | typeof autofillPage;
 
 const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "dashboard", label: "Overview", icon: <Icon path="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" /> },
@@ -10,6 +11,7 @@ const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "failures", label: "Failure review", icon: <Icon path="M12 9v4m0 4h.01M10.3 3.9 2.5 17.4A1 1 0 0 0 3.37 19h17.26a1 1 0 0 0 .87-1.5L13.7 3.9a1 1 0 0 0-1.4 0Z" /> },
   { id: "exports", label: "Transfer packages", icon: <Icon path="M5 3h10l4 4v14H5V3Zm9 0v5h5M9 13h6m-6 4h6" /> },
   { id: "library", label: "Archive library", icon: <Icon path="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Zm0 15A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 18.5" /> },
+  { id: "autofill", label: "Auto-fill", icon: <Icon path="M3 5h11v4H3zM3 11h7v4H3zM3 17h13v4H3zM19 11v6m-3-3h6" /> },
   { id: "settings", label: "Source settings", icon: <Icon path="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 6a1.7 1.7 0 0 0 1.04-1.55V4.3h3v.15A1.7 1.7 0 0 0 15.74 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z" /> },
   { id: "debug", label: "Debug log", icon: <Icon path="M8 9h8M8 13h5m-8 7 2-4a8 8 0 1 1 3 3l-5 1Z" /> },
 ];
@@ -49,6 +51,7 @@ export default function App() {
         {page === "failures" && <Failures />}
         {page === "exports" && <Exports source={source} />}
         {page === "library" && <Library />}
+        {page === "autofill" && <AutoFill source={source} onNavigate={setPage} />}
         {page === "settings" && <Settings source={source} />}
         {page === "debug" && <DebugLog />}
       </div>
@@ -171,6 +174,95 @@ function Jobs({ source }: { source: Source | undefined }) {
       {clearCancelled.error && <p className="form-error">Clear cancelled failed: {clearCancelled.error.message}</p>}
     </Panel>
     {errorJob && <PlanningErrorModal job={errorJob} onClose={() => setErrorJob(null)} />}
+  </>;
+}
+
+function AutoFill({ source, onNavigate }: { source: Source | undefined; onNavigate: (page: Page) => void }) {
+  const client = useQueryClient();
+  const [start, setStart] = useState(1);
+  const [end, setEnd] = useState(1000);
+  const [limit, setLimit] = useState(500);
+  const [coverage, setCoverage] = useState<GapCoverage | null>(null);
+  const [fillResult, setFillResult] = useState<FillResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const autoFillQuery = useQuery({
+    queryKey: ["autofill", source?.id],
+    queryFn: () => source ? api.getAutoFill(source.id) : Promise.reject(new Error("No source configured")),
+    enabled: Boolean(source),
+    refetchInterval: 30_000,
+  });
+  const saveAuto = useMutation({
+    mutationFn: (body: { enabled?: boolean; frontierStart?: number; batchSize?: number }) => source ? api.updateAutoFill(source.id, body) : Promise.reject(new Error("No source configured")),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["autofill"] }),
+  });
+  const [autoEnabled, setAutoEnabled] = useState(false);
+  const [autoBatch, setAutoBatch] = useState(200);
+  const [autoFrontier, setAutoFrontier] = useState(1);
+  useEffect(() => {
+    if (!autoFillQuery.data) return;
+    setAutoEnabled(autoFillQuery.data.autoFill.enabled);
+    setAutoBatch(autoFillQuery.data.autoFill.batchSize);
+    setAutoFrontier(autoFillQuery.data.autoFill.frontierStart);
+  }, [autoFillQuery.data]);
+  const checkCoverage = async () => {
+    if (!source) return;
+    setBusy(true);
+    setFillResult(null);
+    try { setCoverage((await api.gapCoverage(source.id, start, end)).coverage); } finally { setBusy(false); }
+  };
+  const fillGaps = async () => {
+    if (!source) return;
+    setBusy(true);
+    try {
+      const result = await api.fillGaps({ sourceId: source.id, start, end, limit });
+      setFillResult(result);
+      await client.invalidateQueries({ queryKey: ["jobs"] });
+      setCoverage((await api.gapCoverage(source.id, start, end)).coverage);
+    } finally { setBusy(false); }
+  };
+  const config = autoFillQuery.data?.autoFill;
+  const pace = source ? Math.max(source.minimumDelayMs, source.dailyRequestBudget ? (24 * 3600 * 1000) / source.dailyRequestBudget : 0) : 0;
+  return <>
+    <div className="page-actions"><div><h2>Auto-fill coverage</h2><p>See which work IDs in a range are missing and queue them, or let the collector top up coverage automatically from a frontier.</p></div></div>
+    {!source && <Notice title="Configure a source first" text="Create the AO3 source in Settings before using auto-fill." action={() => onNavigate("settings")} />}
+    <div className="two-column">
+      <Panel title="Gap coverage">
+        <div className="form-grid">
+          <label>Start ID<input type="number" min="1" value={start} onChange={(e) => setStart(Number(e.target.value))} /></label>
+          <label>End ID<input type="number" min={start} value={end} onChange={(e) => setEnd(Number(e.target.value))} /></label>
+          <label>Queue limit<input type="number" min="1" max="5000" value={limit} onChange={(e) => setLimit(Number(e.target.value))} /></label>
+        </div>
+        <div className="row-actions" style={{ margin: "12px 0" }}>
+          <button className="secondary" disabled={!source || busy} onClick={() => void checkCoverage()}>Check coverage</button>
+          <button className="primary" disabled={!source || busy || !coverage || coverage.missing === 0} onClick={() => void fillGaps()}>Queue {coverage ? Math.min(limit, coverage.missing) : limit} missing</button>
+        </div>
+        {coverage && <>
+          <div className="error-detail-grid">
+            <div><span>Range</span><b>{formatNumber(coverage.start)}–{formatNumber(coverage.end)}</b></div>
+            <div><span>Total IDs</span><b>{formatNumber(coverage.total)}</b></div>
+            <div><span>Collected</span><b>{formatNumber(coverage.collected)}</b></div>
+            <div><span>Already queued</span><b>{formatNumber(coverage.attempted)}</b></div>
+            <div><span>Known gone (404)</span><b>{formatNumber(coverage.notFound)}</b></div>
+            <div><span>Missing</span><b>{formatNumber(coverage.missing)}</b></div>
+          </div>
+          {pace > 0 && <p className="muted">Filling all {formatNumber(coverage.missing)} missing would take ≈ {formatLongDuration(coverage.missing * pace)} at your current pace ({formatPace(pace)}).</p>}
+        </>}
+        {fillResult && <p className="verify-ok">✓ Queued {formatNumber(fillResult.enqueued)} missing works{fillResult.jobId ? ` into job #${fillResult.jobId}` : ""}.{fillResult.enqueued === 0 ? " No gaps remain in this range." : ""}</p>}
+        {saveAuto.error && <p className="form-error">{saveAuto.error.message}</p>}
+      </Panel>
+      <Panel title="Automatic fill">
+        {config ? <>
+          <label className="toggle-row"><input type="checkbox" checked={autoEnabled} onChange={(e) => setAutoEnabled(e.target.checked)} /><span><b>Enable automatic fill</b><small>The collector worker tops up coverage every ~10 minutes while the source is enabled and the queue is not backed up.</small></span></label>
+          <div className="form-grid">
+            <label>Batch size<input type="number" min="1" max="5000" value={autoBatch} onChange={(e) => setAutoBatch(Number(e.target.value))} /></label>
+            <label>Frontier start<input type="number" min="1" value={autoFrontier} onChange={(e) => setAutoFrontier(Number(e.target.value))} /></label>
+          </div>
+          <div className="estimate"><span>Last run</span><span>{config.lastRunAt ? formatDateTime(config.lastRunAt) : "Never"}</span></div>
+          <div className="estimate"><span>Last job</span><span>{config.lastJobId ? `#${config.lastJobId}` : "—"}</span></div>
+          <div className="modal-actions"><button className="primary" disabled={saveAuto.isPending} onClick={() => saveAuto.mutate({ enabled: autoEnabled, batchSize: autoBatch, frontierStart: autoFrontier })}>{saveAuto.isPending ? "Saving…" : "Save auto-fill"}</button></div>
+        </> : <Empty title="No auto-fill configured" text="Open the auto-fill panel to enable automatic gap filling." />}
+      </Panel>
+    </div>
   </>;
 }
 
@@ -395,6 +487,8 @@ function DebugLog() {
   const [view, setView] = useState<"api" | "fetches" | "workers">("api");
   const [logService, setLogService] = useState<WorkerEvent["service"] | "all">("all");
   const [copiedBundle, setCopiedBundle] = useState(false);
+  const [showRefresh, setShowRefresh] = useState(false);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const copyBundle = async () => {
     try {
       const bundle = await api.diagnostics();
@@ -407,6 +501,7 @@ function DebugLog() {
   const logsQuery = useQuery({ queryKey: ["logs", logService], queryFn: () => api.logs(logService, 100), refetchInterval: 3_000, enabled: view === "workers" });
   const fetches = fetchesQuery.data?.fetches ?? [];
   const logs = logsQuery.data?.logs ?? [];
+  const visibleEntries = entries.filter((entry) => showRefresh || entry.method !== "GET" || (entry.status ?? 0) >= 400);
   const download = () => {
     const blob = new Blob([JSON.stringify({ generatedAt: new Date().toISOString(), entries }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -415,14 +510,14 @@ function DebugLog() {
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   };
   const description = view === "api"
-    ? "Recent browser-to-API requests. Tokens and request bodies are not recorded."
+    ? "Recent browser-to-API requests. Routine refresh/polling calls are hidden by default — only actions and errors show. Tokens and request bodies are never recorded."
     : view === "fetches"
       ? "Recent raw fetches made to the AO3 source, from stored fetch snapshots."
       : "Structured events recorded by each container process (API, planner, collector, export). Useful for tracing why planning or collection failed.";
   return <>
-    <div className="page-actions"><div><h2>Debug log</h2><p>{description}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button><button className={view === "workers" ? "active" : ""} onClick={() => setView("workers")}>Worker logs</button></div><button onClick={() => void copyBundle()} disabled={copiedBundle}>{copiedBundle ? "Copied ✓" : "Copy diagnostics bundle"}</button>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
-    {view === "api" ? <Panel title={`${entries.length} recent requests`}>
-      {entries.length ? <div className="debug-list">{entries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div></article>)}</div> : <Empty title="No requests recorded" text="Use the interface; successes and failures will appear here." />}
+    <div className="page-actions"><div><h2>Debug log</h2><p>{description}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button><button className={view === "workers" ? "active" : ""} onClick={() => setView("workers")}>Worker logs</button></div>{view === "api" && <button onClick={() => setShowRefresh((value) => !value)}>{showRefresh ? "Hide refresh calls" : "Show refresh calls"}</button>}<button onClick={() => void copyBundle()} disabled={copiedBundle}>{copiedBundle ? "Copied ✓" : "Copy diagnostics bundle"}</button>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
+    {view === "api" ? <Panel title={`${visibleEntries.length} shown of ${entries.length} requests`}>
+      {visibleEntries.length ? <div className="debug-list">{visibleEntries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time><button className="text-button" onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}>{expandedId === entry.id ? "Hide" : "Details"}</button></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div>{expandedId === entry.id && <pre className="error-detail">{JSON.stringify(entry, null, 2)}</pre>}</article>)}</div> : <Empty title="No matching requests" text={showRefresh ? "No API requests recorded yet." : "Only actions and errors are shown. Enable 'Show refresh calls' to include the GUI's polling requests."} />}
     </Panel> : view === "fetches" ? <Panel title={`${fetchesQuery.data?.total ?? 0} recent AO3 fetches`}>
       {fetches.length ? <div className="table-wrap"><table><thead><tr><th>Work</th><th>HTTP</th><th>Attempts</th><th>Bytes</th><th>Parser</th><th>URL</th><th>Fetched</th></tr></thead><tbody>{fetches.map((fetch) => <tr key={fetch.id}><td><b>{fetch.sourceWorkId ? `AO3 #${fetch.sourceWorkId}` : "—"}</b></td><td><Status status={String(fetch.httpStatus)} /></td><td>{fetch.attempts > 1 ? <span title="Retried after earlier failures">{fetch.attempts}</span> : "1"}</td><td>{fetch.responseBytes ? formatBytes(fetch.responseBytes) : "—"}</td><td>{fetch.parserVersion ?? "—"}</td><td className="error-cell"><code>{fetch.url}</code></td><td>{formatDateTime(fetch.fetchedAt)}</td></tr>)}</tbody></table></div> : <Empty title="No AO3 fetches yet" text="Fetches appear here as the collector makes requests to the source." />}
     </Panel> : <Panel title={`Worker events · ${logService}`} action={<div className="segmented">{(["all", "planner", "collector", "export", "api", "system"] as const).map((service) => <button key={service} className={logService === service ? "active" : ""} onClick={() => setLogService(service)}>{service}</button>)}</div>}>

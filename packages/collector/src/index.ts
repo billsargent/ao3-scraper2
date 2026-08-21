@@ -1,3 +1,4 @@
+export * from "./auto-fill.js";
 export * from "./blob-store.js";
 export * from "./event-log.js";
 export * from "./exporter.js";
