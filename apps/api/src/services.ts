@@ -65,6 +65,7 @@ export interface SystemSettings {
 export interface DiagnosticsSnapshot {
   generatedAt: string;
   system: { dataDirectory: string; exportDirectory: string };
+  sources: unknown[];
   jobs: unknown[];
   failures: unknown[];
   logs: WorkerEventRow[];
@@ -208,7 +209,8 @@ export class MariaDbApiServices implements ApiServices {
   }
 
   async diagnostics(): Promise<DiagnosticsSnapshot> {
-    const [jobs, failures, logs, system] = await Promise.all([
+    const [sources, jobs, failures, logs, system] = await Promise.all([
+      this.listSources(),
       this.listJobs(100, 0),
       this.listFailures(100, 0),
       this.events.list("all", 200, 0),
@@ -217,6 +219,7 @@ export class MariaDbApiServices implements ApiServices {
     return {
       generatedAt: new Date().toISOString(),
       system,
+      sources,
       jobs,
       failures: failures.items,
       logs,

@@ -37,7 +37,7 @@ function services(): ApiServices {
     listFetches: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listEvents: vi.fn().mockResolvedValue([]),
     recordEvent: vi.fn().mockResolvedValue(undefined),
-    diagnostics: vi.fn().mockResolvedValue({ generatedAt: "2026-08-21T00:00:00.000Z", system: { dataDirectory: "./data", exportDirectory: "./data/exports" }, jobs: [], failures: [], logs: [] }),
+    diagnostics: vi.fn().mockResolvedValue({ generatedAt: "2026-08-21T00:00:00.000Z", system: { dataDirectory: "./data", exportDirectory: "./data/exports" }, sources: [{ id: 1, key: "ao3" }], jobs: [], failures: [], logs: [] }),
   };
 }
 

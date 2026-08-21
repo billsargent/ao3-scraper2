@@ -303,6 +303,7 @@ export interface WorkerEvent {
 export interface DiagnosticsBundle {
   generatedAt: string;
   system: { dataDirectory: string; exportDirectory: string; authEnabled: boolean; appCommit: string };
+  sources: Source[];
   jobs: CollectionJob[];
   failures: FailureRecord[];
   logs: WorkerEvent[];
