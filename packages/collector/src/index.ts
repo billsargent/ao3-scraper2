@@ -1,4 +1,5 @@
 export * from "./blob-store.js";
+export * from "./event-log.js";
 export * from "./exporter.js";
 export * from "./export-queue.js";
 export * from "./export-worker.js";

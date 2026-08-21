@@ -5,6 +5,7 @@ import {
   CollectorStore,
   CollectorWorker,
   ContentAddressedBlobStore,
+  EventLog,
   SourceBudgetStore,
   TaskLeaseStore,
   WorkTaskProcessor,
@@ -25,6 +26,7 @@ const { db, pool } = createDatabase(configuration.COLLECTOR_DATABASE_URL);
 const store = new CollectorStore(db);
 const blobs = new ContentAddressedBlobStore(resolve(configuration.COLLECTOR_BLOB_DIRECTORY));
 const budgets = new SourceBudgetStore(db);
+const events = new EventLog(db, { service: "collector", workerId: configuration.WORKER_ID ?? `${hostname()}:${process.pid}` });
 const processors: WorkProcessorFactory = {
   create(task: ClaimedTask) {
     const fetcher = new PoliteSourceClient({
@@ -62,12 +64,13 @@ const processors: WorkProcessorFactory = {
   },
 };
 const worker = new CollectorWorker(
-  new TaskLeaseStore(db),
+  new TaskLeaseStore(db, events),
   budgets,
   processors,
   {
     workerId: configuration.WORKER_ID ?? `${hostname()}:${process.pid}`,
     maximumFailureAttempts: configuration.WORKER_MAXIMUM_FAILURE_ATTEMPTS,
+    events,
   },
 );
 const controller = new AbortController();
@@ -77,8 +80,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 try {
   console.log(JSON.stringify({ event: "worker_started", workerId: configuration.WORKER_ID ?? `${hostname()}:${process.pid}` }));
+  await events.record({ level: "info", event: "worker_started", message: "Collector worker started." });
   await worker.run(controller.signal);
 } finally {
+  await events.record({ level: "info", event: "worker_stopped", message: "Collector worker stopped." });
   await pool.end();
   console.log(JSON.stringify({ event: "worker_stopped" }));
 }

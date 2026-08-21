@@ -289,6 +289,17 @@ export interface FetchSnapshot {
   attempts: number;
 }
 
+export interface WorkerEvent {
+  id: number;
+  service: "api" | "collector" | "planner" | "export" | "system";
+  workerId: string | null;
+  level: "debug" | "info" | "warn" | "error";
+  event: string;
+  message: string | null;
+  context: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export const api = {
   health: () => request<{ status: string; commit: string }>("/api/health/ready"),
   statistics: () => request<{ statistics: CollectorStatistics }>("/api/statistics"),
@@ -327,6 +338,7 @@ export const api = {
   settings: () => request<{ settings: SystemSettings; system: SystemInfo }>("/api/settings"),
   updateSettings: (body: { backupRetentionDays?: number | null | undefined; defaultBatchSize?: number | undefined; timezone?: string | undefined }) => request<{ settings: SystemSettings }>("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
   fetches: (page = 0, limit = 25) => request<{ fetches: FetchSnapshot[]; total: number; limit: number; offset: number }>(`/api/fetches?limit=${limit}&offset=${page * limit}`),
+  logs: (service: WorkerEvent["service"] | "all" = "all", limit = 100) => request<{ logs: WorkerEvent[]; service: string; limit: number; offset: number }>(`/api/logs?service=${service}&limit=${limit}&offset=0`),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

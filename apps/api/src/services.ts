@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
-import { CollectorStore, ExportQueueStore, TaskLeaseStore } from "@ao3-offsite/collector";
+import { CollectorStore, EventLog, ExportQueueStore, TaskLeaseStore, type EventService, type WorkerEventRow } from "@ao3-offsite/collector";
 import {
   authors,
   bookmarks,
@@ -99,6 +99,8 @@ export interface ApiServices {
   updateSettings(update: SettingsUpdate): Promise<SystemSettings>;
   getSystemInfo(): Promise<{ dataDirectory: string; exportDirectory: string }>;
   listFetches(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
+  listEvents(service: EventService | "all", limit: number, offset: number): Promise<WorkerEventRow[]>;
+  recordEvent(input: { level?: "debug" | "info" | "warn" | "error"; event: string; message?: string; context?: Record<string, unknown> }): Promise<void>;
   statistics(): Promise<CollectorStatistics>;
 }
 
@@ -106,11 +108,13 @@ export class MariaDbApiServices implements ApiServices {
   private readonly collector: CollectorStore;
   private readonly leases: TaskLeaseStore;
   private readonly exports: ExportQueueStore;
+  private readonly events: EventLog;
 
   constructor(private readonly db: CollectorDatabase, private readonly exportRoot = "./data/exports") {
     this.collector = new CollectorStore(db);
     this.leases = new TaskLeaseStore(db);
     this.exports = new ExportQueueStore(db);
+    this.events = new EventLog(db, { service: "api" });
   }
 
   async ready(): Promise<boolean> {
@@ -184,6 +188,14 @@ export class MariaDbApiServices implements ApiServices {
       })),
       total: totalRows[0]?.value ?? 0,
     };
+  }
+
+  listEvents(service: EventService | "all", limit: number, offset: number): Promise<WorkerEventRow[]> {
+    return this.events.list(service, limit, offset);
+  }
+
+  recordEvent(input: { level?: "debug" | "info" | "warn" | "error"; event: string; message?: string; context?: Record<string, unknown> }): Promise<void> {
+    return this.events.record(input);
   }
 
   async createSource(input: SourceCreate): Promise<number> {

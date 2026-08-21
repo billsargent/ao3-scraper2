@@ -35,6 +35,8 @@ function services(): ApiServices {
     updateSettings: vi.fn().mockResolvedValue({ backupRetentionDays: 30, defaultBatchSize: 250, timezone: "UTC" }),
     getSystemInfo: vi.fn().mockResolvedValue({ dataDirectory: "./data", exportDirectory: "./data/exports" }),
     listFetches: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    listEvents: vi.fn().mockResolvedValue([]),
+    recordEvent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -85,6 +87,18 @@ describe("Fastify control API", () => {
     expect(put.statusCode).toBe(200);
     expect(put.json().settings.backupRetentionDays).toBe(30);
     expect((await app.inject({ method: "GET", url: "/api/fetches" })).statusCode).toBe(200);
+  });
+
+  it("lists worker events filtered by service", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const all = await app.inject({ method: "GET", url: "/api/logs" });
+    expect(all.statusCode).toBe(200);
+    expect(all.json()).toMatchObject({ service: "all", limit: 25, offset: 0 });
+    expect(mock.listEvents).toHaveBeenCalledWith("all", 25, 0);
+    const planner = await app.inject({ method: "GET", url: "/api/logs?service=planner&limit=50" });
+    expect(planner.statusCode).toBe(200);
+    expect(mock.listEvents).toHaveBeenCalledWith("planner", 50, 0);
+    expect((await app.inject({ method: "GET", url: "/api/logs?service=bogus" })).statusCode).toBe(400);
   });
 
   it("reports process and database health", async () => {

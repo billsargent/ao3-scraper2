@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { collectionJobs, collectionTasks, observations, type CollectorDatabase } from "@ao3-offsite/database";
 import { IdRangeConfigurationSchema } from "./planner.js";
+import type { EventLog } from "./event-log.js";
 
 export interface ClaimedPlanningJob {
   id: number;
@@ -110,11 +111,18 @@ export class JobPlannerWorker {
     private readonly workerId: string,
     private readonly queue: JobPlannerStore,
     private readonly leaseMilliseconds = 120_000,
+    private readonly events?: EventLog,
   ) {}
 
   async processOne(): Promise<boolean> {
     const claim = await this.queue.claim(this.workerId, this.leaseMilliseconds);
     if (!claim) return false;
+    await this.events?.record({
+      level: "info",
+      event: "planner_claimed",
+      message: `Claimed job #${claim.id} for planning.`,
+      context: { jobId: claim.id, sourceId: claim.sourceId, cursor: claim.cursor, end: claim.configuration.end, batchSize: claim.configuration.batchSize },
+    });
     if (!await this.queue.markPlanning(claim.id, claim.leaseToken)) return false;
     try {
       let cursor = claim.cursor;
@@ -123,12 +131,35 @@ export class JobPlannerWorker {
         const ids = Array.from({ length: batchEnd - cursor + 1 }, (_value, index) => String(cursor + index));
         cursor = batchEnd + 1;
         if (!await this.queue.enqueueBatch(claim.id, claim.leaseToken, ids, cursor, this.leaseMilliseconds)) {
+          await this.events?.record({
+            level: "warn",
+            event: "planner_batch_rejected",
+            message: `Planning batch rejected for job #${claim.id} (job paused or cancelled).`,
+            context: { jobId: claim.id, cursor },
+          });
           return true;
         }
       }
       await this.queue.complete(claim.id, claim.leaseToken);
+      await this.events?.record({
+        level: "info",
+        event: "planner_completed",
+        message: `Finished planning job #${claim.id}.`,
+        context: { jobId: claim.id, end: claim.configuration.end },
+      });
     } catch (error) {
       await this.queue.fail(claim.id, claim.leaseToken, error);
+      await this.events?.record({
+        level: "error",
+        event: "planner_failed",
+        message: `Planning failed for job #${claim.id}: ${error instanceof Error ? error.message : String(error)}`,
+        context: {
+          jobId: claim.id,
+          cursor: claim.cursor,
+          end: claim.configuration.end,
+          error: error instanceof Error ? error.stack ?? error.message : String(error),
+        },
+      });
     }
     return true;
   }

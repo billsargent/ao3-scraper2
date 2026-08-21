@@ -1,6 +1,7 @@
 import type { TaskOutcome } from "./processor.js";
 import type { RequestReservation, SourceBudgetStore } from "./source-budget-store.js";
 import type { ClaimedTask, TaskLeaseStore } from "./task-store.js";
+import type { EventLog } from "./event-log.js";
 
 export interface WorkProcessor {
   process(sourceWorkId: string): Promise<TaskOutcome>;
@@ -16,6 +17,7 @@ export interface WorkerOptions {
   heartbeatMilliseconds?: number;
   idleMilliseconds?: number;
   maximumFailureAttempts?: number;
+  events?: EventLog;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
   random?: () => number;
@@ -57,6 +59,12 @@ export class CollectorWorker {
     if (!reservation.granted) {
       const retryAt = reservation.retryAt ?? new Date(this.now().getTime() + 60_000);
       await this.leases.defer(task.taskId, task.leaseToken, retryAt, `source_${reservation.reason}`);
+      await this.options.events?.record({
+        level: "info",
+        event: "collector_deferred",
+        message: `Deferred AO3 #${task.sourceWorkId}: ${reservation.reason}.`,
+        context: { taskId: task.taskId, jobId: task.jobId, sourceWorkId: task.sourceWorkId, reason: reservation.reason },
+      });
       return true;
     }
 
@@ -84,6 +92,22 @@ export class CollectorWorker {
         availableAt: new Date(this.now().getTime() + retryDelay(task.attempts, this.random)),
       });
     }
+    const level = outcome.status === "succeeded" ? "debug" : outcome.status === "not_found" ? "info" : "warn";
+    const outcomeCode = "code" in outcome ? outcome.code : null;
+    const outcomeMessage = "message" in outcome ? outcome.message : null;
+    await this.options.events?.record({
+      level,
+      event: `collector_${outcome.status}`,
+      message: `AO3 #${task.sourceWorkId} finished as ${outcome.status}${outcomeCode ? ` (${outcomeCode})` : ""}.`,
+      context: {
+        taskId: task.taskId,
+        jobId: task.jobId,
+        sourceWorkId: task.sourceWorkId,
+        attempts: task.attempts,
+        code: outcomeCode,
+        message: outcomeMessage,
+      },
+    });
     return true;
   }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type Source, type WorkDetail } from "./api.js";
+import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type Source, type WorkDetail, type WorkerEvent } from "./api.js";
 
 type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings" | "debug";
 
@@ -157,7 +157,7 @@ function Jobs({ source }: { source: Source | undefined }) {
     {showForm && source && <JobForm source={source} onClose={() => setShowForm(false)} />}
     <Panel title="All jobs">
         {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Timing</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
-        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} /></td><td><Progress job={job} /></td><td><JobTiming job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
+        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} />{job.planningError && <small className="planning-error" title={job.planningError}>{job.planningError}</small>}</td><td><Progress job={job} /></td><td><JobTiming job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
           {(job.status === "queued" || job.status === "running") && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button disabled={control.isPending} className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
@@ -382,9 +382,12 @@ function Settings({ source }: { source: Source | undefined }) {
 
 function DebugLog() {
   const entries = useSyncExternalStore(subscribeDebug, getDebugEntries, getDebugEntries);
-  const [view, setView] = useState<"api" | "fetches">("api");
+  const [view, setView] = useState<"api" | "fetches" | "workers">("api");
+  const [logService, setLogService] = useState<WorkerEvent["service"] | "all">("all");
   const fetchesQuery = useQuery({ queryKey: ["fetches", 0], queryFn: () => api.fetches(0, 25), refetchInterval: 5_000 });
+  const logsQuery = useQuery({ queryKey: ["logs", logService], queryFn: () => api.logs(logService, 100), refetchInterval: 3_000, enabled: view === "workers" });
   const fetches = fetchesQuery.data?.fetches ?? [];
+  const logs = logsQuery.data?.logs ?? [];
   const download = () => {
     const blob = new Blob([JSON.stringify({ generatedAt: new Date().toISOString(), entries }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -392,12 +395,19 @@ function DebugLog() {
     anchor.href = url; anchor.download = `archive-relay-debug-${Date.now()}.json`; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   };
+  const description = view === "api"
+    ? "Recent browser-to-API requests. Tokens and request bodies are not recorded."
+    : view === "fetches"
+      ? "Recent raw fetches made to the AO3 source, from stored fetch snapshots."
+      : "Structured events recorded by each container process (API, planner, collector, export). Useful for tracing why planning or collection failed.";
   return <>
-    <div className="page-actions"><div><h2>Debug log</h2><p>{view === "api" ? "Recent browser-to-API requests. Tokens and request bodies are not recorded." : "Recent raw fetches made to the AO3 source, from stored fetch snapshots."}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button></div>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
+    <div className="page-actions"><div><h2>Debug log</h2><p>{description}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button><button className={view === "workers" ? "active" : ""} onClick={() => setView("workers")}>Worker logs</button></div>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
     {view === "api" ? <Panel title={`${entries.length} recent requests`}>
       {entries.length ? <div className="debug-list">{entries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div></article>)}</div> : <Empty title="No requests recorded" text="Use the interface; successes and failures will appear here." />}
-    </Panel> : <Panel title={`${fetchesQuery.data?.total ?? 0} recent AO3 fetches`}>
+    </Panel> : view === "fetches" ? <Panel title={`${fetchesQuery.data?.total ?? 0} recent AO3 fetches`}>
       {fetches.length ? <div className="table-wrap"><table><thead><tr><th>Work</th><th>HTTP</th><th>Attempts</th><th>Bytes</th><th>Parser</th><th>URL</th><th>Fetched</th></tr></thead><tbody>{fetches.map((fetch) => <tr key={fetch.id}><td><b>{fetch.sourceWorkId ? `AO3 #${fetch.sourceWorkId}` : "—"}</b></td><td><Status status={String(fetch.httpStatus)} /></td><td>{fetch.attempts > 1 ? <span title="Retried after earlier failures">{fetch.attempts}</span> : "1"}</td><td>{fetch.responseBytes ? formatBytes(fetch.responseBytes) : "—"}</td><td>{fetch.parserVersion ?? "—"}</td><td className="error-cell"><code>{fetch.url}</code></td><td>{formatDateTime(fetch.fetchedAt)}</td></tr>)}</tbody></table></div> : <Empty title="No AO3 fetches yet" text="Fetches appear here as the collector makes requests to the source." />}
+    </Panel> : <Panel title={`Worker events · ${logService}`} action={<div className="segmented">{(["all", "planner", "collector", "export", "api", "system"] as const).map((service) => <button key={service} className={logService === service ? "active" : ""} onClick={() => setLogService(service)}>{service}</button>)}</div>}>
+      {logs.length ? <div className="debug-list">{logs.map((log) => <article className={`debug-entry ${log.level}`} key={log.id}><div className="debug-head"><span className={`debug-level ${log.level}`}>{log.level}</span><code>{log.event}</code><span className={`service-chip ${log.service}`}>{log.service}</span><time>{formatDateTime(log.createdAt)}</time></div><div className="debug-body"><b>{log.message ?? log.event}</b><span>{log.workerId ?? ""}</span>{log.context && <code>{JSON.stringify(log.context)}</code>}</div></article>)}</div> : <Empty title="No worker events yet" text="Events appear here as the planner, collector, export, and API processes run." />}
     </Panel>}
   </>;
 }

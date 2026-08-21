@@ -13,6 +13,9 @@ const Pagination = z.object({
   offset: z.coerce.number().int().nonnegative().default(0),
 });
 const WorksQuery = Pagination.extend({ q: z.string().max(200).default("") });
+const LogsQuery = Pagination.extend({
+  service: z.enum(["all", "api", "collector", "planner", "export", "system"]).default("all"),
+});
 const ChapterParams = z.object({
   id: z.coerce.number().int().positive(),
   chapterId: z.coerce.number().int().positive(),
@@ -98,6 +101,12 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
       });
       return;
     }
+    void services.recordEvent({
+      level: "error",
+      event: "api_request_failed",
+      message: error instanceof Error && error.message ? error.message : "The server could not complete the request.",
+      context: { method: request.method, url: request.url, requestId: request.id },
+    });
     request.log.error({ err: error, requestId: request.id }, "API request failed");
     void reply.status(500).send({
       error: "internal_error",
@@ -201,6 +210,10 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     const { limit, offset } = Pagination.parse(request.query);
     const result = await services.listFetches(limit, offset);
     return { fetches: result.items, total: result.total, limit, offset };
+  });
+  app.get("/api/logs", async (request) => {
+    const { service, limit, offset } = LogsQuery.parse(request.query);
+    return { logs: await services.listEvents(service, limit, offset), service, limit, offset };
   });
   app.post("/api/jobs/id-range", async (request, reply) => {
     const body = IdRangeBody.parse(request.body);

@@ -322,3 +322,17 @@ export const bookmarks = mysqlTable("bookmarks", {
 }, (table) => [
   uniqueIndex("bookmarks_work_source_unique").on(table.workId, table.sourceBookmarkId),
 ]);
+
+export const workerEvents = mysqlTable("worker_events", {
+  id: id(),
+  service: mysqlEnum("service", ["api", "collector", "planner", "export", "system"]).notNull(),
+  workerId: varchar("worker_id", { length: 255 }),
+  level: mysqlEnum("level", ["debug", "info", "warn", "error"]).notNull().default("info"),
+  event: varchar("event", { length: 255 }).notNull(),
+  message: text("message"),
+  context: json("context").$type<Record<string, unknown>>(),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+}, (table) => [
+  index("worker_events_service_time").on(table.service, table.createdAt),
+  index("worker_events_created").on(table.createdAt),
+]);

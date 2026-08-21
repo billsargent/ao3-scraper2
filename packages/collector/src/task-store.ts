@@ -6,6 +6,7 @@ import {
   sources,
   type CollectorDatabase,
 } from "@ao3-offsite/database";
+import type { EventLog } from "./event-log.js";
 
 export interface ClaimedTask {
   taskId: number;
@@ -42,7 +43,7 @@ export type Completion =
   | { status: "cancelled"; message?: string };
 
 export class TaskLeaseStore {
-  constructor(private readonly db: CollectorDatabase) {}
+  constructor(private readonly db: CollectorDatabase, private readonly events?: EventLog) {}
 
   async claim(workerId: string, limit = 1, leaseMilliseconds = 120_000): Promise<ClaimedTask[]> {
     if (!workerId.trim()) throw new Error("workerId is required");
@@ -205,8 +206,8 @@ export class TaskLeaseStore {
    * completed, so only the corrupted state (cancelled + pending work) or a
    * stuck planning lease is flipped back to running.
    */
-  async recoverCancelledJobs(now = new Date()): Promise<void> {
-    await this.db.execute(sql`
+  async recoverCancelledJobs(now = new Date()): Promise<number> {
+    const result = await this.db.execute(sql`
       UPDATE collection_jobs AS job
       SET job.status = 'running',
           job.completed_at = NULL,
@@ -225,6 +226,16 @@ export class TaskLeaseStore {
           )
         )
     `);
+    const recovered = affectedRows(result);
+    if (recovered > 0) {
+      await this.events?.record({
+        level: "warn",
+        event: "job_self_healed",
+        message: `Recovered ${recovered} cancelled job(s) that still had pending work or an interrupted planning lease.`,
+        context: { recovered },
+      });
+    }
+    return recovered;
   }
 
   async pauseJob(jobId: number): Promise<void> {
