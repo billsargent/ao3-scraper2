@@ -40,6 +40,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+      # MariaDB can take a while to boot (or recover after an unclean shutdown),
+      # and the API waits for it before starting. Give the API time to come up
+      # before healthcheck failures start counting.
+      start_period: 120s
     logging:
       driver: json-file
       options:
