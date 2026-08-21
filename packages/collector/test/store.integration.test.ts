@@ -209,6 +209,16 @@ integration("CollectorStore with MariaDB", () => {
       planningStatus: "completed", planningCursor: 307, discoveredCount: 7,
     });
 
+    // Pausing the source must halt planning too (matching the collector).
+    const pausedPlanningJobId = await store.createIdRangeJob(sourceId, { start: 100, end: 105, batchSize: 2 });
+    await db.update(sources).set({ paused: true }).where(eq(sources.id, sourceId));
+    expect(await planner.processOne()).toBe(false);
+    const pausedPlanningJob = (await db.select().from(collectionJobs).where(eq(collectionJobs.id, pausedPlanningJobId)))[0]!;
+    expect(pausedPlanningJob.planningStatus).toBe("queued");
+    await db.update(sources).set({ paused: false }).where(eq(sources.id, sourceId));
+    expect(await planner.processOne()).toBe(true);
+    expect((await db.select().from(collectionJobs).where(eq(collectionJobs.id, pausedPlanningJobId)))[0]!.planningStatus).toBe("completed");
+
     const resumedJobId = await store.createIdRangeJob(sourceId, { start: 400, end: 405, batchSize: 2 });
     await store.enqueueWorkIds(resumedJobId, ["400", "401"]);
     await db.update(collectionJobs).set({ planningCursor: 402 }).where(eq(collectionJobs.id, resumedJobId));

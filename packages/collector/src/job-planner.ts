@@ -25,6 +25,12 @@ export class JobPlannerStore {
           planning_lease_expires_at = ${leaseExpiresAt}, updated_at = ${now}
       WHERE job_type = 'id_range'
         AND status IN ('queued', 'running')
+        -- Planning must also respect the source pause switch, like the
+        -- collector does, so pausing a source truly halts all work.
+        AND NOT EXISTS (
+          SELECT 1 FROM sources
+          WHERE sources.id = collection_jobs.source_id AND sources.paused = true
+        )
         AND (
           planning_status = 'queued'
           OR (planning_status IN ('leased', 'planning') AND planning_lease_expires_at <= ${now})
