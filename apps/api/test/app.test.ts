@@ -37,6 +37,7 @@ function services(): ApiServices {
     listFetches: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listEvents: vi.fn().mockResolvedValue([]),
     recordEvent: vi.fn().mockResolvedValue(undefined),
+    diagnostics: vi.fn().mockResolvedValue({ generatedAt: "2026-08-21T00:00:00.000Z", system: { dataDirectory: "./data", exportDirectory: "./data/exports" }, jobs: [], failures: [], logs: [] }),
   };
 }
 
@@ -99,6 +100,17 @@ describe("Fastify control API", () => {
     expect(planner.statusCode).toBe(200);
     expect(mock.listEvents).toHaveBeenCalledWith("planner", 50, 0);
     expect((await app.inject({ method: "GET", url: "/api/logs?service=bogus" })).statusCode).toBe(400);
+  });
+
+  it("assembles a diagnostics snapshot with system metadata", async () => {
+    const mock = services(); const app = buildApp(mock, { commit: "abc123" }); apps.push(app);
+    const response = await app.inject({ method: "GET", url: "/api/diagnostics" });
+    expect(response.statusCode).toBe(200);
+    expect(mock.diagnostics).toHaveBeenCalled();
+    expect(response.json()).toMatchObject({
+      system: { dataDirectory: "./data", authEnabled: false, appCommit: "abc123" },
+      jobs: [], failures: [], logs: [],
+    });
   });
 
   it("reports process and database health", async () => {

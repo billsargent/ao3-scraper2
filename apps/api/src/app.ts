@@ -215,6 +215,10 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
     const { service, limit, offset } = LogsQuery.parse(request.query);
     return { logs: await services.listEvents(service, limit, offset), service, limit, offset };
   });
+  app.get("/api/diagnostics", async () => {
+    const snapshot = await services.diagnostics();
+    return { ...snapshot, system: { ...snapshot.system, authEnabled: Boolean(security.apiToken), appCommit: commit } };
+  });
   app.post("/api/jobs/id-range", async (request, reply) => {
     const body = IdRangeBody.parse(request.body);
     const jobId = await services.createIdRangeJob(body.sourceId, {

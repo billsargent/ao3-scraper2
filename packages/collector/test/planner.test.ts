@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
+import { describeError, isTransientError } from "../src/job-planner.js";
 import { planIdRange } from "../src/planner.js";
+
+describe("planner error diagnostics", () => {
+  it("unwraps the underlying MySQL error cause", () => {
+    const mysql = Object.assign(
+      new Error("Deadlock found when trying to get lock; try restarting transaction"),
+      { code: "ER_LOCK_DEADLOCK", errno: 1213, sqlMessage: "Deadlock found when trying to get lock; try restarting transaction" },
+    );
+    const drizzleError = Object.assign(new Error("Failed query: select ..."), { name: "DrizzleQueryError", cause: mysql });
+    const described = describeError(drizzleError);
+    expect(described).toContain("ER_LOCK_DEADLOCK");
+    expect(described).toContain("Deadlock found");
+  });
+
+  it("classifies transient lock and connection errors", () => {
+    expect(isTransientError({ code: "ER_LOCK_DEADLOCK" })).toBe(true);
+    expect(isTransientError({ cause: { code: "1205" } })).toBe(true);
+    expect(isTransientError({ code: "PROTOCOL_CONNECTION_LOST" })).toBe(true);
+    expect(isTransientError({ code: "ER_DUP_ENTRY" })).toBe(false);
+    expect(isTransientError(new Error("generic failure"))).toBe(false);
+  });
+});
 
 describe("ID range planner", () => {
   it("streams bounded batches without materializing the full range", () => {

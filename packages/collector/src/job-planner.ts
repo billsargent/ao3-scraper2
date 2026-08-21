@@ -57,7 +57,7 @@ export class JobPlannerStore {
 
   async enqueueBatch(id: number, leaseToken: string, sourceWorkIds: string[], nextCursor: number, leaseMilliseconds = 120_000): Promise<boolean> {
     const now = new Date();
-    return this.db.transaction(async (tx) => {
+    return withTransientRetry(() => this.db.transaction(async (tx) => {
       const job = (await tx.select({ status: collectionJobs.status, sourceId: collectionJobs.sourceId }).from(collectionJobs).where(and(
         eq(collectionJobs.id, id), eq(collectionJobs.planningLeaseToken, leaseToken), eq(collectionJobs.planningStatus, "planning"),
       )).limit(1).for("update"))[0];
@@ -87,7 +87,7 @@ export class JobPlannerStore {
         updatedAt: now,
       }).where(eq(collectionJobs.id, id));
       return true;
-    });
+    }));
   }
 
   async complete(id: number, leaseToken: string): Promise<void> {
@@ -100,7 +100,7 @@ export class JobPlannerStore {
   async fail(id: number, leaseToken: string, error: unknown): Promise<void> {
     await this.db.update(collectionJobs).set({
       planningStatus: "failed", planningLeaseToken: null, planningLeaseExpiresAt: null,
-      planningError: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      planningError: describeError(error),
       status: "failed", completedAt: new Date(), updatedAt: new Date(),
     }).where(and(eq(collectionJobs.id, id), eq(collectionJobs.planningLeaseToken, leaseToken)));
   }
@@ -152,7 +152,7 @@ export class JobPlannerWorker {
       await this.events?.record({
         level: "error",
         event: "planner_failed",
-        message: `Planning failed for job #${claim.id}: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Planning failed for job #${claim.id}: ${describeError(error)}`,
         context: {
           jobId: claim.id,
           cursor: claim.cursor,
@@ -176,4 +176,45 @@ function affectedRows(result: unknown): number {
   return candidate && typeof candidate === "object" && "affectedRows" in candidate
     ? Number((candidate as { affectedRows: unknown }).affectedRows)
     : 0;
+}
+
+async function withTransientRetry<T>(operation: () => Promise<T>, maximumAttempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientError(error) || attempt === maximumAttempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+    }
+  }
+  throw lastError;
+}
+
+export function isTransientError(error: unknown): boolean {
+  let candidate: unknown = error;
+  for (let depth = 0; depth < 5 && candidate && typeof candidate === "object"; depth += 1) {
+    const code = "code" in candidate ? String((candidate as { code?: unknown }).code ?? "") : "";
+    if (["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT", "1213", "1205", "PROTOCOL_CONNECTION_LOST", "ECONNRESET", "ETIMEDOUT", "ER_QUERY_INTERRUPTED", "ER_SERVER_SHUTDOWN"].includes(code)) return true;
+    candidate = "cause" in candidate ? (candidate as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
+
+export function describeError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  let detail = "";
+  let cause: unknown = (error as { cause?: unknown }).cause;
+  for (let depth = 0; depth < 4 && cause && typeof cause === "object"; depth += 1) {
+    const candidate = cause as { code?: unknown; errno?: unknown; sqlMessage?: unknown; message?: unknown; cause?: unknown };
+    const code = candidate.code != null ? String(candidate.code) : "";
+    const sqlMessage = candidate.sqlMessage != null ? String(candidate.sqlMessage) : "";
+    if (code || sqlMessage) {
+      detail = `${code}${sqlMessage ? `: ${sqlMessage}` : ""}`;
+      break;
+    }
+    cause = candidate.cause;
+  }
+  return `${error.name}: ${error.message}${detail ? ` — ${detail}` : ""}`;
 }

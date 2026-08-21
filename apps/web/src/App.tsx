@@ -147,6 +147,7 @@ function Jobs({ source }: { source: Source | undefined }) {
   const client = useQueryClient();
   const jobs = useQuery({ queryKey: ["jobs"], queryFn: api.jobs, refetchInterval: 30_000 });
   const [showForm, setShowForm] = useState(false);
+  const [errorJob, setErrorJob] = useState<CollectionJob | null>(null);
   const control = useMutation({ mutationFn: ({ id, action }: { id: number; action: "pause" | "resume" | "cancel" }) => api.controlJob(id, action), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
   const remove = useMutation({ mutationFn: (id: number) => api.deleteJob(id), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
   const clearCancelled = useMutation({ mutationFn: () => api.clearCancelledJobs(), onSuccess: () => client.invalidateQueries({ queryKey: ["jobs"] }) });
@@ -157,7 +158,7 @@ function Jobs({ source }: { source: Source | undefined }) {
     {showForm && source && <JobForm source={source} onClose={() => setShowForm(false)} />}
     <Panel title="All jobs">
         {jobs.data?.jobs.length ? <div className="table-wrap"><table><thead><tr><th>Job</th><th>Range</th><th>Status</th><th>Progress</th><th>Timing</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
-        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} />{job.planningError && <small className="planning-error" title={job.planningError}>{job.planningError}</small>}</td><td><Progress job={job} /></td><td><JobTiming job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
+        {jobs.data.jobs.map((job) => <tr key={job.id}><td><b>#{job.id}</b><small>{job.type.replace("_", " ")}</small></td><td>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</td><td><Status status={displayJobStatus(job)} />{job.planningError && <button type="button" className="planning-error" title="Click for full error" onClick={() => setErrorJob(job)}>{job.planningError}</button>}</td><td><Progress job={job} /></td><td><JobTiming job={job} /></td><td>{formatDate(job.createdAt)}</td><td><div className="row-actions">
           {(job.status === "queued" || job.status === "running") && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "pause" })}>Pause</button>}
           {job.status === "paused" && <button disabled={control.isPending} onClick={() => control.mutate({ id: job.id, action: "resume" })}>Resume</button>}
           {!['completed','cancelled'].includes(job.status) && <button disabled={control.isPending} className="danger" onClick={() => control.mutate({ id: job.id, action: "cancel" })}>Cancel</button>}
@@ -169,6 +170,7 @@ function Jobs({ source }: { source: Source | undefined }) {
       {remove.error && <p className="form-error">Delete failed: {remove.error.message}</p>}
       {clearCancelled.error && <p className="form-error">Clear cancelled failed: {clearCancelled.error.message}</p>}
     </Panel>
+    {errorJob && <PlanningErrorModal job={errorJob} onClose={() => setErrorJob(null)} />}
   </>;
 }
 
@@ -211,7 +213,7 @@ function Exports({ source }: { source: Source | undefined }) {
   return <>
     <div className="page-actions"><div><h2>Transfer packages</h2><p>Durable snapshot and incremental exports ready for the OTW importer.</p></div><div className="export-create"><label>Maximum works<input type="number" min="1" max="5000" value={maximumWorks} onChange={(event) => setMaximumWorks(Number(event.target.value))} /></label><button className="primary" disabled={!source || create.isPending} onClick={() => create.mutate()}>{create.isPending ? "Queueing…" : "Queue export"}</button></div></div>
     <Panel title={`${formatNumber(total)} export requests`}>
-      {rows.length ? <><div className="table-wrap"><table><thead><tr><th>Package</th><th>Type / parent</th><th>Status</th><th>Works</th><th>Import</th><th>Completed</th><th><span className="sr-only">Inspect</span></th></tr></thead><tbody>{rows.map((record) => <tr key={record.id}><td><b>{record.packageId.slice(0, 8)}…</b><small>Sequence {record.sequenceNumber ?? "pending"} · Export #{record.id}</small></td><td>{record.previousPackageId ? <><b>Incremental</b><small>After {record.previousPackageId.slice(0, 8)}…</small></> : <><b>Snapshot</b><small>First package</small></>}</td><td><Status status={record.status} />{record.errorMessage && <small className="export-error">{record.errorMessage}</small>}</td><td>{formatNumber(record.workCount)} / {formatNumber(record.maximumWorks)}</td><td><Status status={record.importStatus} /></td><td>{record.completedAt ? formatDateTime(record.completedAt) : "—"}</td><td><button className="read-button" onClick={() => setSelectedExport(record.id)}>Inspect</button></td></tr>)}</tbody></table></div><div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page {page + 1}</span><button disabled={(page + 1) * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next →</button></div></> : <Empty title="No transfer packages yet" text="Queue an export after works have been collected. The export worker writes and verifies it asynchronously." />}
+      {rows.length ? <><div className="table-wrap"><table><thead><tr><th>Package</th><th>Type / parent</th><th>Status</th><th>Works</th><th>Import</th><th>Completed</th><th><span className="sr-only">Inspect</span></th></tr></thead><tbody>{rows.map((record) => <tr key={record.id}><td><b>{record.packageId.slice(0, 8)}…</b><small>Sequence {record.sequenceNumber ?? "pending"} · Export #{record.id}</small></td><td>{record.previousPackageId ? <><b>Incremental</b><small>After {record.previousPackageId.slice(0, 8)}…</small></> : <><b>Snapshot</b><small>First package</small></>}</td><td><Status status={record.status} />{record.errorMessage && <span className="error-with-copy"><small className="export-error">{record.errorMessage}</small><CopyButton text={record.errorMessage} label="copy" /></span>}</td><td>{formatNumber(record.workCount)} / {formatNumber(record.maximumWorks)}</td><td><Status status={record.importStatus} /></td><td>{record.completedAt ? formatDateTime(record.completedAt) : "—"}</td><td><button className="read-button" onClick={() => setSelectedExport(record.id)}>Inspect</button></td></tr>)}</tbody></table></div><div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page {page + 1}</span><button disabled={(page + 1) * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next →</button></div></> : <Empty title="No transfer packages yet" text="Queue an export after works have been collected. The export worker writes and verifies it asynchronously." />}
       {create.error && <p className="form-error">{create.error.message}</p>}
     </Panel>
     {selectedExport !== null && <ExportDetail exportId={selectedExport} onClose={() => setSelectedExport(null)} />}
@@ -242,7 +244,7 @@ function Failures() {
   return <>
     <div className="page-actions"><div><h2>Failure review</h2><p>Inspect retryable and terminal outcomes without losing captured content.</p></div></div>
     <Panel title={`${formatNumber(total)} failures requiring attention`}>
-      {rows.length ? <><div className="table-wrap"><table><thead><tr><th>Work</th><th>Job</th><th>State</th><th>Attempts</th><th>Error</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{rows.map((failure) => <tr key={failure.taskId}><td><b>AO3 #{failure.sourceWorkId}</b><small>Task #{failure.taskId}</small></td><td>#{failure.jobId}</td><td><Status status={failure.status} /></td><td>{failure.attempts}</td><td className="error-cell"><b>{failure.errorCode ?? "Unknown error"}</b><small>{failure.errorMessage ?? "No error detail was recorded."}</small></td><td>{formatDateTime(failure.updatedAt)}</td><td><button className="read-button" disabled={retry.isPending} onClick={() => retry.mutate(failure.jobId)}>Retry job failures</button></td></tr>)}</tbody></table></div><div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page {page + 1}</span><button disabled={(page + 1) * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next →</button></div></> : <Empty title="No failures to review" text="Retryable and terminal task errors will appear here." />}
+      {rows.length ? <><div className="table-wrap"><table><thead><tr><th>Work</th><th>Job</th><th>State</th><th>Attempts</th><th>Error</th><th>Updated</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{rows.map((failure) => <tr key={failure.taskId}><td><b>AO3 #{failure.sourceWorkId}</b><small>Task #{failure.taskId}</small></td><td>#{failure.jobId}</td><td><Status status={failure.status} /></td><td>{failure.attempts}</td><td className="error-cell"><b>{failure.errorCode ?? "Unknown error"}</b><small>{failure.errorMessage ?? "No error detail was recorded."}</small>{failure.errorMessage && <CopyButton text={failure.errorMessage} label="copy" />}</td><td>{formatDateTime(failure.updatedAt)}</td><td><button className="read-button" disabled={retry.isPending} onClick={() => retry.mutate(failure.jobId)}>Retry job failures</button></td></tr>)}</tbody></table></div><div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => value - 1)}>← Previous</button><span>Page {page + 1}</span><button disabled={(page + 1) * pageSize >= total} onClick={() => setPage((value) => value + 1)}>Next →</button></div></> : <Empty title="No failures to review" text="Retryable and terminal task errors will appear here." />}
     </Panel>
   </>;
 }
@@ -384,6 +386,15 @@ function DebugLog() {
   const entries = useSyncExternalStore(subscribeDebug, getDebugEntries, getDebugEntries);
   const [view, setView] = useState<"api" | "fetches" | "workers">("api");
   const [logService, setLogService] = useState<WorkerEvent["service"] | "all">("all");
+  const [copiedBundle, setCopiedBundle] = useState(false);
+  const copyBundle = async () => {
+    try {
+      const bundle = await api.diagnostics();
+      await copyText(JSON.stringify(bundle, null, 2));
+      setCopiedBundle(true);
+      setTimeout(() => setCopiedBundle(false), 2000);
+    } catch { /* Ignore copy failures. */ }
+  };
   const fetchesQuery = useQuery({ queryKey: ["fetches", 0], queryFn: () => api.fetches(0, 25), refetchInterval: 5_000 });
   const logsQuery = useQuery({ queryKey: ["logs", logService], queryFn: () => api.logs(logService, 100), refetchInterval: 3_000, enabled: view === "workers" });
   const fetches = fetchesQuery.data?.fetches ?? [];
@@ -401,13 +412,13 @@ function DebugLog() {
       ? "Recent raw fetches made to the AO3 source, from stored fetch snapshots."
       : "Structured events recorded by each container process (API, planner, collector, export). Useful for tracing why planning or collection failed.";
   return <>
-    <div className="page-actions"><div><h2>Debug log</h2><p>{description}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button><button className={view === "workers" ? "active" : ""} onClick={() => setView("workers")}>Worker logs</button></div>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
+    <div className="page-actions"><div><h2>Debug log</h2><p>{description}</p></div><div className="row-actions"><div className="segmented"><button className={view === "api" ? "active" : ""} onClick={() => setView("api")}>API requests</button><button className={view === "fetches" ? "active" : ""} onClick={() => setView("fetches")}>AO3 fetches</button><button className={view === "workers" ? "active" : ""} onClick={() => setView("workers")}>Worker logs</button></div><button onClick={() => void copyBundle()} disabled={copiedBundle}>{copiedBundle ? "Copied ✓" : "Copy diagnostics bundle"}</button>{view === "api" && <button onClick={download} disabled={!entries.length}>Download JSON</button>}{view === "api" && <button className="danger" onClick={clearDebugEntries} disabled={!entries.length}>Clear</button>}</div></div>
     {view === "api" ? <Panel title={`${entries.length} recent requests`}>
       {entries.length ? <div className="debug-list">{entries.map((entry: DebugEntry) => <article className={`debug-entry ${entry.outcome}`} key={entry.id}><div className="debug-head"><span className="debug-method">{entry.method}</span><code>{entry.path}</code><Status status={entry.status === null ? "network" : String(entry.status)} /><time>{formatDateTime(entry.timestamp)}</time></div><div className="debug-body"><b>{entry.message}</b><span>{entry.durationMs} ms{entry.requestId ? ` · Request ${entry.requestId}` : ""}</span>{entry.issues?.map((issue, index) => <code key={index}>{issue.path?.join(".") || "value"}: {issue.message}</code>)}</div></article>)}</div> : <Empty title="No requests recorded" text="Use the interface; successes and failures will appear here." />}
     </Panel> : view === "fetches" ? <Panel title={`${fetchesQuery.data?.total ?? 0} recent AO3 fetches`}>
       {fetches.length ? <div className="table-wrap"><table><thead><tr><th>Work</th><th>HTTP</th><th>Attempts</th><th>Bytes</th><th>Parser</th><th>URL</th><th>Fetched</th></tr></thead><tbody>{fetches.map((fetch) => <tr key={fetch.id}><td><b>{fetch.sourceWorkId ? `AO3 #${fetch.sourceWorkId}` : "—"}</b></td><td><Status status={String(fetch.httpStatus)} /></td><td>{fetch.attempts > 1 ? <span title="Retried after earlier failures">{fetch.attempts}</span> : "1"}</td><td>{fetch.responseBytes ? formatBytes(fetch.responseBytes) : "—"}</td><td>{fetch.parserVersion ?? "—"}</td><td className="error-cell"><code>{fetch.url}</code></td><td>{formatDateTime(fetch.fetchedAt)}</td></tr>)}</tbody></table></div> : <Empty title="No AO3 fetches yet" text="Fetches appear here as the collector makes requests to the source." />}
     </Panel> : <Panel title={`Worker events · ${logService}`} action={<div className="segmented">{(["all", "planner", "collector", "export", "api", "system"] as const).map((service) => <button key={service} className={logService === service ? "active" : ""} onClick={() => setLogService(service)}>{service}</button>)}</div>}>
-      {logs.length ? <div className="debug-list">{logs.map((log) => <article className={`debug-entry ${log.level}`} key={log.id}><div className="debug-head"><span className={`debug-level ${log.level}`}>{log.level}</span><code>{log.event}</code><span className={`service-chip ${log.service}`}>{log.service}</span><time>{formatDateTime(log.createdAt)}</time></div><div className="debug-body"><b>{log.message ?? log.event}</b><span>{log.workerId ?? ""}</span>{log.context && <code>{JSON.stringify(log.context)}</code>}</div></article>)}</div> : <Empty title="No worker events yet" text="Events appear here as the planner, collector, export, and API processes run." />}
+      {logs.length ? <div className="debug-list">{logs.map((log) => <article className={`debug-entry ${log.level}`} key={log.id}><div className="debug-head"><span className={`debug-level ${log.level}`}>{log.level}</span><code>{log.event}</code><span className={`service-chip ${log.service}`}>{log.service}</span><time>{formatDateTime(log.createdAt)}</time></div><div className="debug-body"><b>{log.message ?? log.event}</b><span>{log.workerId ?? ""}</span>{log.context && <code>{JSON.stringify(log.context)}</code>}<CopyButton text={JSON.stringify(log, null, 2)} label="copy event" /></div></article>)}</div> : <Empty title="No worker events yet" text="Events appear here as the planner, collector, export, and API processes run." />}
     </Panel>}
   </>;
 }
@@ -453,9 +464,44 @@ function displayJobStatus(job: CollectionJob): string {
   return job.status;
 }
 function JobRow({ job }: { job: CollectionJob }) { return <div className="job-row"><div className="job-icon"><Icon path="M12 4v12m0 0 4-4m-4 4-4-4" /></div><div><b>Job #{job.id}</b><span>{job.configuration.start ?? "?"}–{job.configuration.end ?? "?"} · {formatNumber(job.discoveredCount)} tasks</span></div><Status status={displayJobStatus(job)} /><time>{formatDate(job.createdAt)}</time></div>; }
+
+function PlanningErrorModal({ job, onClose }: { job: CollectionJob; onClose: () => void }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-label="Planning error details">
+    <div className="modal-head"><div><p className="eyebrow accent">PLANNING FAILED</p><h2>Job #{job.id}</h2></div><button type="button" className="icon-button" aria-label="Close" onClick={onClose}>×</button></div>
+    <div className="error-detail-grid"><div><span>Status</span><b>{job.status}</b></div><div><span>Planning</span><b>{job.planningStatus}</b></div><div><span>Range</span><b>{job.configuration.start ?? "—"}–{job.configuration.end ?? "—"}</b></div><div><span>Discovered</span><b>{formatNumber(job.discoveredCount)}</b></div></div>
+    <div className="error-detail-head"><span>Error message</span></div>
+    <pre className="error-detail">{job.planningError}</pre>
+    <p className="muted">Retry planning from the Jobs table, or check Debug log → Worker logs → planner for surrounding events.</p>
+    <div className="modal-actions"><CopyButton text={job.planningError ?? ""} label="Copy error" /><button className="secondary" onClick={onClose}>Close</button></div>
+  </section></div>;
+}
+
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return <button type="button" className="copy-button" onClick={() => { void copyText(text).then((ok) => { if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1600); } }); }}>{copied ? "Copied ✓" : label}</button>;
+}
+
 function Icon({ path }: { path: string }) { return <svg aria-hidden="true" viewBox="0 0 24 24"><path d={path} /></svg>; }
 
 const formatNumber = (value: number) => new Intl.NumberFormat().format(value);
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* Fall through to the legacy path. */ }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  document.body.removeChild(textarea);
+  return ok;
+}
 const compactNumber = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 const formatDate = (value: string) => new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(value));
 const formatDateTime = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));

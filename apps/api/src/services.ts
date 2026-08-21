@@ -62,6 +62,14 @@ export interface SystemSettings {
   timezone: string;
 }
 
+export interface DiagnosticsSnapshot {
+  generatedAt: string;
+  system: { dataDirectory: string; exportDirectory: string };
+  jobs: unknown[];
+  failures: unknown[];
+  logs: WorkerEventRow[];
+}
+
 export type SettingsUpdate = {
   backupRetentionDays?: number | null | undefined;
   defaultBatchSize?: number | undefined;
@@ -101,6 +109,7 @@ export interface ApiServices {
   listFetches(limit: number, offset: number): Promise<{ items: unknown[]; total: number }>;
   listEvents(service: EventService | "all", limit: number, offset: number): Promise<WorkerEventRow[]>;
   recordEvent(input: { level?: "debug" | "info" | "warn" | "error"; event: string; message?: string; context?: Record<string, unknown> }): Promise<void>;
+  diagnostics(): Promise<DiagnosticsSnapshot>;
   statistics(): Promise<CollectorStatistics>;
 }
 
@@ -196,6 +205,22 @@ export class MariaDbApiServices implements ApiServices {
 
   recordEvent(input: { level?: "debug" | "info" | "warn" | "error"; event: string; message?: string; context?: Record<string, unknown> }): Promise<void> {
     return this.events.record(input);
+  }
+
+  async diagnostics(): Promise<DiagnosticsSnapshot> {
+    const [jobs, failures, logs, system] = await Promise.all([
+      this.listJobs(100, 0),
+      this.listFailures(100, 0),
+      this.events.list("all", 200, 0),
+      this.getSystemInfo(),
+    ]);
+    return {
+      generatedAt: new Date().toISOString(),
+      system,
+      jobs,
+      failures: failures.items,
+      logs,
+    };
   }
 
   async createSource(input: SourceCreate): Promise<number> {
