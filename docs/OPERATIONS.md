@@ -68,6 +68,31 @@ curl -X POST http://localhost:8080/api/jobs/1/retry-failures
 
 The worker claims tasks under short leases, reserves database-backed source slots, respects the source delay and daily budgets, heartbeats, stores raw HTML before parsing, persists records transactionally, and completes, retries, or terminally fails each task. Retries use bounded exponential backoff with jitter (default six attempts). Expired leases from a crashed worker are reclaimed automatically.
 
+## Tag archive (archive by tag)
+
+The **Tag archive** UI page prioritises collection by AO3 tag instead of by ID range — useful for grabbing a fandom, pairing, or freeform tag's works without planning an ID-range job.
+
+- **Subscribe**: one-click relationship presets (M/M, F/F, F/M, Gen, Multi), or search — the live search hits AO3's tag search, and local matches cover tags already in your archive — then subscribe.
+- **Crawl**: while the source is enabled and not paused, the collector worker fetches one page of each enabled subscription's `/tags/<slug>/works` listing (newest first) roughly every 10 minutes, keeps only works you don't already have (not collected, not queued, not known gone), queues them as a small explicit-IDs job, and advances that tag's page cursor. The queue backlog is capped and only one page per subscription runs per cycle.
+- **Queue now**: fetch the next page of a subscription immediately from the UI instead of waiting for the next cycle.
+- **Controls**: per-subscription auto-fill on/off, remove, and status (next page, last run, last job).
+
+API:
+
+```bash
+curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8080/api/tags/search?sourceId=1&q=harry%20potter"
+curl -H "Authorization: Bearer $API_TOKEN" "http://localhost:8080/api/tags/local?sourceId=1&q=harry"
+curl -X POST -H "Authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
+  "http://localhost:8080/api/tags/subscriptions?sourceId=1" \
+  -d '{"tagName":"M/M","tagSlug":"M%2FM","tagType":"Category"}'
+curl -X POST -H "Authorization: Bearer $API_TOKEN" "http://localhost:8080/api/tags/subscriptions/1/queue"
+curl -X PUT -H "Authorization: Bearer $API_TOKEN" -H 'content-type: application/json' \
+  "http://localhost:8080/api/tags/subscriptions/1" -d '{"enabled":false}'
+curl -X DELETE -H "Authorization: Bearer $API_TOKEN" "http://localhost:8080/api/tags/subscriptions/1"
+```
+
+Confirm the crawler is running from **Debug log → Worker logs**: `tag_auto_fill_created` (works queued), `tag_auto_fill_skipped` (page already fully known), `tag_auto_fill_exhausted` (past the end of the listing), and `tag_auto_fill_failed` (fetch/parse error).
+
 ## Transfer packages
 
 Queue an export from the **Transfer packages** UI, or:

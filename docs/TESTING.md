@@ -24,6 +24,15 @@ npm test -- --run packages/collector/test/store.integration.test.ts
 
 The integration suite exercises migrations, task leases, request budgets, planning recovery, worker persistence, concurrent export workers, sequence/parent lineage, archive creation, and checksum verification. It resets collector tables, so do not point it at a database containing data you need.
 
+### Tag archive smoke (optional)
+
+```bash
+export COLLECTOR_DATABASE_URL='mysql://collector:collector_local_only@localhost:3307/ao3_collector'
+npx tsx scripts/tag-smoke.ts
+```
+
+Exercises the tag-archive code path end to end against the dev DB: subscribe → fetch a tag's works listing from a local fake-AO3 HTTP server (no real requests) → keep only uncollected works → queue an explicit-IDs job → advance the tag's page cursor. It only touches the `tag-smoke` source it creates, so it is safe to run against a dev database.
+
 ## Browser tests
 
 Install Chromium once:
