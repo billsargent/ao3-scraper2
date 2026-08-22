@@ -335,6 +335,29 @@ export interface AutoFillConfig {
   lastRunAt: string | null;
 }
 
+export type TagType = "Rating" | "ArchiveWarning" | "Category" | "Fandom" | "Relationship" | "Character" | "Freeform";
+
+export interface TagSearchResult {
+  name: string;
+  slug: string;
+  type: TagType;
+  worksCount: number | null;
+}
+
+export interface TagSubscription {
+  id: number;
+  sourceId: number;
+  tagName: string;
+  tagSlug: string;
+  tagType: TagType;
+  nextPage: number;
+  lastJobId: number | null;
+  lastRunAt: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const api = {
   health: () => request<{ status: string; commit: string }>("/api/health/ready"),
   statistics: () => request<{ statistics: CollectorStatistics }>("/api/statistics"),
@@ -379,6 +402,13 @@ export const api = {
   fillGaps: (body: { sourceId: number; start: number; end: number; limit: number }) => request<FillResult>("/api/jobs/fill-gaps", { method: "POST", body: JSON.stringify(body) }),
   getAutoFill: (sourceId: number) => request<{ autoFill: AutoFillConfig }>(`/api/auto-fill/${sourceId}`),
   updateAutoFill: (sourceId: number, body: { enabled?: boolean; frontierStart?: number; batchSize?: number }) => request<{ autoFill: AutoFillConfig }>(`/api/auto-fill/${sourceId}`, { method: "PUT", body: JSON.stringify(body) }),
+  searchTags: (sourceId: number, q: string) => request<{ tags: TagSearchResult[] }>(`/api/tags/search?sourceId=${sourceId}&q=${encodeURIComponent(q)}`),
+  searchTagsLocal: (sourceId: number, q: string) => request<{ tags: Array<{ id: number; name: string; slug: string; type: TagType; canonical: boolean | null }> }>(`/api/tags/local?sourceId=${sourceId}&q=${encodeURIComponent(q)}`),
+  tagSubscriptions: (sourceId: number) => request<{ subscriptions: TagSubscription[] }>(`/api/tags/subscriptions?sourceId=${sourceId}`),
+  createTagSubscription: (sourceId: number, body: { tagName: string; tagSlug: string; tagType: TagType }) => request<{ subscription: TagSubscription }>(`/api/tags/subscriptions?sourceId=${sourceId}`, { method: "POST", body: JSON.stringify(body) }),
+  updateTagSubscription: (id: number, body: { enabled?: boolean }) => request<{ subscription: TagSubscription }>(`/api/tags/subscriptions/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteTagSubscription: (id: number) => request<{ deleted: boolean }>(`/api/tags/subscriptions/${id}`, { method: "DELETE" }),
+  queueTagPage: (id: number) => request<{ jobId: number | null; enqueued: number; page: number }>(`/api/tags/subscriptions/${id}/queue`, { method: "POST" }),
   works: (page = 0, limit = 25, query = "") => request<{ works: WorkSummary[]; total: number; limit: number; offset: number }>(`/api/works?limit=${limit}&offset=${page * limit}&q=${encodeURIComponent(query)}`),
   work: (id: number) => request<{ work: WorkDetail }>(`/api/works/${id}`),
   chapter: (workId: number, chapterId: number) => request<{ chapter: ChapterDetail }>(`/api/works/${workId}/chapters/${chapterId}`),

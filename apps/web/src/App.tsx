@@ -1,9 +1,10 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type FillResult, type GapCoverage, type Source, type WorkDetail, type WorkerEvent } from "./api.js";
+import { ApiError, api, clearDebugEntries, getDebugEntries, setApiToken, streamEvents, subscribeDebug, type CollectionJob, type DebugEntry, type ExportRecord, type FillResult, type GapCoverage, type Source, type TagSearchResult, type TagSubscription, type TagType, type WorkDetail, type WorkerEvent } from "./api.js";
 
 const autofillPage = "autofill";
-type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings" | "debug" | typeof autofillPage;
+const tagsPage = "tags";
+type Page = "dashboard" | "jobs" | "failures" | "exports" | "library" | "settings" | "debug" | typeof autofillPage | typeof tagsPage;
 
 const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "dashboard", label: "Overview", icon: <Icon path="M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z" /> },
@@ -12,6 +13,7 @@ const nav: Array<{ id: Page; label: string; icon: ReactNode }> = [
   { id: "exports", label: "Transfer packages", icon: <Icon path="M5 3h10l4 4v14H5V3Zm9 0v5h5M9 13h6m-6 4h6" /> },
   { id: "library", label: "Archive library", icon: <Icon path="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Zm0 15A2.5 2.5 0 0 1 6.5 18H20v3H6.5A2.5 2.5 0 0 1 4 18.5" /> },
   { id: "autofill", label: "Auto-fill", icon: <Icon path="M3 5h11v4H3zM3 11h7v4H3zM3 17h13v4H3zM19 11v6m-3-3h6" /> },
+  { id: "tags", label: "Tag archive", icon: <Icon path="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8ZM7 7h.01" /> },
   { id: "settings", label: "Source settings", icon: <Icon path="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 6a1.7 1.7 0 0 0 1.04-1.55V4.3h3v.15A1.7 1.7 0 0 0 15.74 6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z" /> },
   { id: "debug", label: "Debug log", icon: <Icon path="M8 9h8M8 13h5m-8 7 2-4a8 8 0 1 1 3 3l-5 1Z" /> },
 ];
@@ -52,6 +54,7 @@ export default function App() {
         {page === "exports" && <Exports source={source} />}
         {page === "library" && <Library />}
         {page === "autofill" && <AutoFill source={source} onNavigate={setPage} />}
+        {page === "tags" && <TagArchive source={source} onNavigate={setPage} />}
         {page === "settings" && <Settings source={source} />}
         {page === "debug" && <DebugLog />}
       </div>
@@ -282,6 +285,168 @@ function AutoFill({ source, onNavigate }: { source: Source | undefined; onNaviga
           <li>Keep the <b>source enabled</b>. Pausing the source — or any individual job — halts work. Job pause is separate from source pause: resume each job individually.</li>
           <li>Keep a polite <b>minimum delay</b> (e.g. 10 s) and a <b>daily request budget</b> (e.g. 250) so AO3 doesn't rate-limit you.</li>
           <li>Confirm it's running: Debug log → Worker logs shows <code>auto_fill_created</code> events.</li>
+        </ul>
+      </div>
+    </Panel>
+  </>;
+}
+
+function TagArchive({ source, onNavigate }: { source: Source | undefined; onNavigate: (page: Page) => void }) {
+  const client = useQueryClient();
+  const [query, setQuery] = useState("");
+  const [liveResults, setLiveResults] = useState<TagSearchResult[] | null>(null);
+  const [localResults, setLocalResults] = useState<Array<{ name: string; slug: string; type: TagType; worksCount: null }>>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [queueNotice, setQueueNotice] = useState<string | null>(null);
+
+  const subscriptionsQuery = useQuery({
+    queryKey: ["tags", "subscriptions", source?.id],
+    queryFn: () => source ? api.tagSubscriptions(source.id) : Promise.reject(new Error("No source configured")),
+    enabled: Boolean(source),
+    refetchInterval: 30_000,
+  });
+  const subscriptions = subscriptionsQuery.data?.subscriptions ?? [];
+  const subscribedSlugs = new Set(subscriptions.map((item) => item.tagSlug));
+
+  const subscribeMutation = useMutation({
+    mutationFn: (body: { tagName: string; tagSlug: string; tagType: TagType }) => source ? api.createTagSubscription(source.id, body) : Promise.reject(new Error("No source configured")),
+    onSuccess: async () => { await client.invalidateQueries({ queryKey: ["tags", "subscriptions"] }); },
+  });
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => api.updateTagSubscription(id, { enabled }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tags", "subscriptions"] }),
+  });
+  const removeMutation = useMutation({
+    mutationFn: (id: number) => api.deleteTagSubscription(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["tags", "subscriptions"] }),
+  });
+  const queueMutation = useMutation({
+    mutationFn: (id: number) => api.queueTagPage(id),
+    onSuccess: async (result) => {
+      await client.invalidateQueries({ queryKey: ["tags", "subscriptions"] });
+      await client.invalidateQueries({ queryKey: ["jobs"] });
+      setQueueNotice(result.jobId
+        ? `✓ Queued ${result.enqueued} works from page ${result.page} into job #${result.jobId}.`
+        : `Nothing new on page ${result.page} — the collector already has those works.`);
+    },
+  });
+
+  const runSearch = async () => {
+    if (!source || !query.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setLiveResults(null);
+    setLocalResults([]);
+    try {
+      const [live, local] = await Promise.all([
+        api.searchTags(source.id, query.trim()),
+        api.searchTagsLocal(source.id, query.trim()),
+      ]);
+      setLiveResults(live.tags);
+      setLocalResults(local.tags.map((row) => ({ name: row.name, slug: row.slug, type: row.type, worksCount: null })));
+    } catch (error) {
+      setSearchError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const presets: Array<{ label: string; tagName: string; tagSlug: string; tagType: TagType }> = [
+    { label: "M/M", tagName: "M/M", tagSlug: "M%2FM", tagType: "Category" },
+    { label: "F/F", tagName: "F/F", tagSlug: "F%2FF", tagType: "Category" },
+    { label: "F/M", tagName: "F/M", tagSlug: "F%2FM", tagType: "Category" },
+    { label: "Gen", tagName: "Gen", tagSlug: "Gen", tagType: "Category" },
+    { label: "Multi", tagName: "Multi", tagSlug: "Multi", tagType: "Category" },
+  ];
+
+  const renderResultRow = (result: { name: string; slug: string; type: TagType; worksCount: number | null }) => {
+    const already = subscribedSlugs.has(result.slug);
+    return <li className="tag-result" key={result.slug}>
+      <div className="tag-result-meta">
+        <b>{result.name}</b>
+        <span className="tag-badge">{result.type}</span>
+        {result.worksCount !== null && <span className="muted">{formatNumber(result.worksCount)} works</span>}
+      </div>
+      {already
+        ? <span className="muted">Subscribed</span>
+        : <button className="secondary" disabled={subscribeMutation.isPending} onClick={() => subscribeMutation.mutate({ tagName: result.name, tagSlug: result.slug, tagType: result.type })}>Subscribe</button>}
+    </li>;
+  };
+
+  return <>
+    <div className="page-actions"><div><h2>Tag archive</h2><p>Prioritise collection by tag. Subscribe to a tag and the collector crawls its /works listing (newest first, one page at a time), queuing every work it finds that you don't already have.</p></div></div>
+    {!source && <Notice title="Configure a source first" text="Create the AO3 source in Settings before using the tag archive." action={() => onNavigate("settings")} />}
+    {source && <>
+      <Panel title="Relationship presets">
+        <p className="muted">One click to subscribe to a category. Each subscription crawls the tag from page 1; the collector queues only works it doesn't already have.</p>
+        <div className="row-actions">
+          {presets.map((preset) => {
+            const already = subscribedSlugs.has(preset.tagSlug);
+            return <button key={preset.tagSlug} className={already ? "secondary" : "primary"} disabled={already || subscribeMutation.isPending} onClick={() => subscribeMutation.mutate({ tagName: preset.tagName, tagSlug: preset.tagSlug, tagType: preset.tagType })}>
+              {already ? `${preset.label} ✓ subscribed` : `Add ${preset.label}`}
+            </button>;
+          })}
+        </div>
+      </Panel>
+      <Panel title="Find a tag">
+        <div className="row-actions" style={{ margin: "0 0 12px" }}>
+          <input type="search" placeholder="e.g. Harry Potter, enemies to lovers, fix-it" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && void runSearch()} style={{ flex: 1, minWidth: 0 }} />
+          <button className="primary" disabled={!query.trim() || searching} onClick={() => void runSearch()}>{searching ? "Searching…" : "Search tags"}</button>
+        </div>
+        {searchError && <p className="form-error">{searchError}</p>}
+        {liveResults !== null && (liveResults.length > 0 || localResults.length > 0) && <>
+          <h4>AO3 results</h4>
+          <ul className="tag-results">{liveResults.map(renderResultRow)}</ul>
+          {localResults.length > 0 && <>
+            <h4>Already in your archive</h4>
+            <ul className="tag-results">{localResults.map(renderResultRow)}</ul>
+          </>}
+        </>}
+        {liveResults !== null && liveResults.length === 0 && localResults.length === 0 && !searchError && <p className="muted">No tags matched “{query}”.</p>}
+      </Panel>
+      <Panel title={`Subscriptions (${subscriptions.length})`}>
+        {subscriptions.length === 0
+          ? <Empty title="No tag subscriptions yet" text="Add a relationship preset above, or search for a tag to archive its works." />
+          : <ul className="tag-subscriptions">
+            {subscriptions.map((subscription: TagSubscription) => (
+              <li key={subscription.id}>
+                <div className="tag-result-meta">
+                  <b>{subscription.tagName}</b>
+                  <span className="tag-badge">{subscription.tagType}</span>
+                  {!subscription.enabled && <span className="tag-badge muted">paused</span>}
+                </div>
+                <div className="estimate"><span>Next page</span><span>{subscription.nextPage}</span></div>
+                <div className="estimate"><span>Last run</span><span>{subscription.lastRunAt ? formatDateTime(subscription.lastRunAt) : "Never"}</span></div>
+                <div className="estimate"><span>Last job</span><span>{subscription.lastJobId ? `#${subscription.lastJobId}` : "—"}</span></div>
+                <div className="row-actions">
+                  <button className="secondary" disabled={queueMutation.isPending} onClick={() => queueMutation.mutate(subscription.id)}>Queue now</button>
+                  <label className="toggle-row" style={{ margin: 0 }}><input type="checkbox" checked={subscription.enabled} onChange={(event) => toggleMutation.mutate({ id: subscription.id, enabled: event.target.checked })} /><span><b>{subscription.enabled ? "Auto-fill on" : "Auto-fill off"}</b></span></label>
+                  <button className="secondary danger" disabled={removeMutation.isPending} onClick={() => removeMutation.mutate(subscription.id)}>Remove</button>
+                </div>
+              </li>
+            ))}
+          </ul>}
+        {queueNotice && <p className="verify-ok">{queueNotice}</p>}
+      </Panel>
+    </>}
+    <Panel title="How tag archiving works">
+      <div className="hint-list">
+        <h4>How it works</h4>
+        <p className="muted">Every ~10 minutes, while the source is enabled and not paused, the collector worker:</p>
+        <ol>
+          <li>Picks each <b>enabled subscription</b> and fetches one page of its <code>/tags/&lt;slug&gt;/works</code> listing (newest first).</li>
+          <li>Keeps only the works you <b>don't already have</b> — not collected, not known gone, not already queued.</li>
+          <li>Queues them as a small explicit-ID job (the same path the collector already uses).</li>
+          <li>Advances that tag's <b>page cursor</b>, so it walks the whole tag listing over time.</li>
+        </ol>
+        <p className="muted">It stays polite and bounded: each tag crawls one page per cycle, the queue backlog is capped, and “Queue now” lets you pull the next page immediately from here.</p>
+        <h4>Tips</h4>
+        <ul>
+          <li>Category presets (M/M, F/F, F/M, Gen, Multi) subscribe instantly; search lets you add fandoms, relationships, or freeform tags.</li>
+          <li>Use <b>Queue now</b> to pull the next page right away instead of waiting for the 10-minute cycle.</li>
+          <li>Turn off <b>Auto-fill</b> on a subscription to stop crawling it while keeping it on the list.</li>
+          <li>Watch the Debug log for <code>tag_auto_fill_created</code> events to confirm the crawler is running.</li>
         </ul>
       </div>
     </Panel>

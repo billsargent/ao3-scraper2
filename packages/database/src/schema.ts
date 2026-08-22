@@ -346,3 +346,18 @@ export const autoFill = mysqlTable("auto_fill", {
   lastRunAt: datetime("last_run_at", { mode: "date", fsp: 3 }),
   ...timestamps,
 }, (table) => [primaryKey({ columns: [table.sourceId] })]);
+
+export const tagSubscriptions = mysqlTable("tag_subscriptions", {
+  id: id(),
+  sourceId: foreignId("source_id").notNull().references(() => sources.id, { onDelete: "cascade" }),
+  tagName: varchar("tag_name", { length: 255 }).notNull(),
+  tagSlug: varchar("tag_slug", { length: 500 }).notNull(),
+  tagType: mysqlEnum("tag_type", ["Rating", "ArchiveWarning", "Category", "Fandom", "Relationship", "Character", "Freeform"]).notNull().default("Freeform"),
+  nextPage: int("next_page", { unsigned: true }).notNull().default(1),
+  lastJobId: bigint("last_job_id", { mode: "number", unsigned: true }),
+  lastRunAt: datetime("last_run_at", { mode: "date", fsp: 3 }),
+  enabled: boolean("enabled").notNull().default(true),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("tag_subscriptions_source_slug_unique").on(table.sourceId, table.tagSlug),
+]);

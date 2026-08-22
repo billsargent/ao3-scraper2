@@ -165,6 +165,31 @@ export class CollectorStore {
     return rows[0]?.value ?? 0;
   }
 
+  /**
+   * Reduce a list of discovered source work IDs to the ones this source has not
+   * already collected, marked not-found, or has queued/retryable for. Used by
+   * tag-based discovery so a tag listing never re-queues work the archive
+   * already has or is about to process.
+   */
+  async filterUncollected(sourceId: number, sourceWorkIds: string[]): Promise<string[]> {
+    if (sourceWorkIds.length === 0) return [];
+    const known = new Set<string>();
+    for (const row of await this.db.select({ sourceWorkId: works.sourceWorkId }).from(works)
+      .where(and(eq(works.sourceId, sourceId), inArray(works.sourceWorkId, sourceWorkIds)))) {
+      known.add(row.sourceWorkId);
+    }
+    for (const row of await this.db.select({ sourceWorkId: observations.sourceWorkId }).from(observations)
+      .where(and(eq(observations.sourceId, sourceId), eq(observations.availability, "not_found"), inArray(observations.sourceWorkId, sourceWorkIds)))) {
+      known.add(row.sourceWorkId);
+    }
+    for (const row of await this.db.select({ sourceWorkId: collectionTasks.sourceWorkId }).from(collectionTasks)
+      .innerJoin(collectionJobs, eq(collectionTasks.jobId, collectionJobs.id))
+      .where(and(eq(collectionJobs.sourceId, sourceId), inArray(collectionTasks.status, ["queued", "retryable_failed"]), inArray(collectionTasks.sourceWorkId, sourceWorkIds)))) {
+      known.add(row.sourceWorkId);
+    }
+    return sourceWorkIds.filter((id) => !known.has(id));
+  }
+
   async recordSnapshot(input: {
     sourceId: number;
     sourceWorkId: string;

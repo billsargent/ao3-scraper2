@@ -41,6 +41,13 @@ function services(): ApiServices {
     fillGaps: vi.fn().mockResolvedValue({ jobId: 50, enqueued: 12, nextCursor: 101 }),
     getAutoFill: vi.fn().mockResolvedValue({ sourceId: 1, enabled: false, frontierStart: 1, batchSize: 200, lastJobId: null, lastRunAt: null }),
     updateAutoFill: vi.fn().mockResolvedValue({ sourceId: 1, enabled: true, frontierStart: 1, batchSize: 200, lastJobId: null, lastRunAt: null }),
+    searchTags: vi.fn().mockResolvedValue([{ name: "M/M", slug: "M%2FM", type: "Category", worksCount: 98765 }]),
+    searchTagsLocal: vi.fn().mockResolvedValue([{ id: 1, name: "M/M", slug: "tag:Category:M/M", type: "Category", canonical: null }]),
+    listTagSubscriptions: vi.fn().mockResolvedValue([]),
+    createTagSubscription: vi.fn().mockResolvedValue({ id: 1, sourceId: 1, tagName: "M/M", tagSlug: "M%2FM", tagType: "Category", nextPage: 1, lastJobId: null, lastRunAt: null, enabled: true, createdAt: new Date(), updatedAt: new Date() }),
+    updateTagSubscription: vi.fn().mockResolvedValue({ id: 1, sourceId: 1, tagName: "M/M", tagSlug: "M%2FM", tagType: "Category", nextPage: 1, lastJobId: null, lastRunAt: null, enabled: false, createdAt: new Date(), updatedAt: new Date() }),
+    deleteTagSubscription: vi.fn().mockResolvedValue(true),
+    queueTagPage: vi.fn().mockResolvedValue({ jobId: 42, enqueued: 20, page: 1 }),
     diagnostics: vi.fn().mockResolvedValue({ generatedAt: "2026-08-21T00:00:00.000Z", system: { dataDirectory: "./data", exportDirectory: "./data/exports" }, sources: [{ id: 1, key: "ao3" }], jobs: [], failures: [], logs: [] }),
   };
 }
@@ -136,6 +143,42 @@ describe("Fastify control API", () => {
     const put = await app.inject({ method: "PUT", url: "/api/auto-fill/1", payload: { enabled: true, batchSize: 100 } });
     expect(put.statusCode).toBe(200);
     expect(mock.updateAutoFill).toHaveBeenCalledWith(1, { enabled: true, batchSize: 100 });
+  });
+
+  it("searches tags live and locally", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const live = await app.inject({ method: "GET", url: "/api/tags/search?sourceId=1&q=slash" });
+    expect(live.statusCode).toBe(200);
+    expect(mock.searchTags).toHaveBeenCalledWith(1, "slash");
+    expect(live.json().tags[0]).toMatchObject({ name: "M/M", slug: "M%2FM", type: "Category" });
+    const local = await app.inject({ method: "GET", url: "/api/tags/local?sourceId=1&q=harry" });
+    expect(local.statusCode).toBe(200);
+    expect(mock.searchTagsLocal).toHaveBeenCalledWith(1, "harry");
+  });
+
+  it("manages tag subscriptions and queues a page", async () => {
+    const mock = services(); const app = buildApp(mock); apps.push(app);
+    const list = await app.inject({ method: "GET", url: "/api/tags/subscriptions?sourceId=1" });
+    expect(list.statusCode).toBe(200);
+    expect(mock.listTagSubscriptions).toHaveBeenCalledWith(1);
+
+    const create = await app.inject({ method: "POST", url: "/api/tags/subscriptions?sourceId=1", payload: { tagName: "M/M", tagSlug: "M%2FM", tagType: "Category" } });
+    expect(create.statusCode).toBe(201);
+    expect(mock.createTagSubscription).toHaveBeenCalledWith(1, { tagName: "M/M", tagSlug: "M%2FM", tagType: "Category" });
+
+    const toggle = await app.inject({ method: "PUT", url: "/api/tags/subscriptions/1", payload: { enabled: false } });
+    expect(toggle.statusCode).toBe(200);
+    expect(mock.updateTagSubscription).toHaveBeenCalledWith(1, { enabled: false });
+
+    const queue = await app.inject({ method: "POST", url: "/api/tags/subscriptions/1/queue" });
+    expect(queue.statusCode).toBe(201);
+    expect(mock.queueTagPage).toHaveBeenCalledWith(1);
+
+    const remove = await app.inject({ method: "DELETE", url: "/api/tags/subscriptions/1" });
+    expect(remove.statusCode).toBe(200);
+    expect(mock.deleteTagSubscription).toHaveBeenCalledWith(1);
+
+    expect((await app.inject({ method: "POST", url: "/api/tags/subscriptions", payload: { tagName: "", tagSlug: "" } })).statusCode).toBe(400);
   });
 
   it("reports process and database health", async () => {

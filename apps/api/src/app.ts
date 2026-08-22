@@ -31,6 +31,13 @@ const AutoFillBody = z.object({
   batchSize: z.number().int().min(1).max(5000).optional(),
 });
 const SourceIdParams = z.object({ sourceId: z.coerce.number().int().positive() });
+const TagSearchQuery = z.object({ sourceId: z.coerce.number().int().positive(), q: z.string().max(200).default("") });
+const TagSubscribeBody = z.object({
+  tagName: z.string().min(1).max(255),
+  tagSlug: z.string().min(1).max(500),
+  tagType: z.enum(["Rating", "ArchiveWarning", "Category", "Fandom", "Relationship", "Character", "Freeform"]).default("Freeform"),
+});
+const TagUpdateBody = z.object({ enabled: z.boolean().optional() });
 const ChapterParams = z.object({
   id: z.coerce.number().int().positive(),
   chapterId: z.coerce.number().int().positive(),
@@ -260,6 +267,46 @@ export function buildApp(services: ApiServices, security: ApiSecurityOptions = {
   app.put("/api/auto-fill/:sourceId", async (request) => {
     const { sourceId } = SourceIdParams.parse(request.params);
     return { autoFill: await services.updateAutoFill(sourceId, AutoFillBody.parse(request.body)) };
+  });
+  app.get("/api/tags/search", async (request) => {
+    const { sourceId, q } = TagSearchQuery.parse(request.query);
+    return { tags: await services.searchTags(sourceId, q) };
+  });
+  app.get("/api/tags/local", async (request) => {
+    const { sourceId, q } = TagSearchQuery.parse(request.query);
+    return { tags: await services.searchTagsLocal(sourceId, q) };
+  });
+  app.get("/api/tags/subscriptions", async (request) => {
+    const { sourceId } = SourceIdParams.parse(request.query);
+    return { subscriptions: await services.listTagSubscriptions(sourceId) };
+  });
+  app.post("/api/tags/subscriptions", async (request, reply) => {
+    const { sourceId } = SourceIdParams.parse(request.query);
+    const body = TagSubscribeBody.parse(request.body);
+    const subscription = await services.createTagSubscription(sourceId, body);
+    return reply.status(201).send({ subscription });
+  });
+  app.put("/api/tags/subscriptions/:id", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const subscription = await services.updateTagSubscription(id, TagUpdateBody.parse(request.body));
+    return subscription ? { subscription } : reply.status(404).send({ error: "not_found" });
+  });
+  app.delete("/api/tags/subscriptions/:id", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    const deleted = await services.deleteTagSubscription(id);
+    return deleted ? { deleted: true } : reply.status(404).send({ error: "not_found" });
+  });
+  app.post("/api/tags/subscriptions/:id/queue", async (request, reply) => {
+    const { id } = IdParams.parse(request.params);
+    try {
+      const result = await services.queueTagPage(id);
+      return reply.status(result.jobId ? 201 : 200).send(result);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not found")) {
+        return reply.status(404).send({ error: "not_found" });
+      }
+      throw error;
+    }
   });
   app.get("/api/jobs/:id", async (request, reply) => {
     const { id } = IdParams.parse(request.params);

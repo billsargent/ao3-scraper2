@@ -8,12 +8,15 @@ import {
   CollectorStore,
   EventLog,
   ExportQueueStore,
+  TagSubscriptionStore,
   TaskLeaseStore,
   isTransientError,
   type AutoFillConfig,
   type EventService,
   type FillResult,
   type GapCoverage,
+  type TagSubscription,
+  type TagType,
   type WorkerEventRow,
 } from "@ao3-offsite/collector";
 import {
@@ -36,6 +39,7 @@ import {
   workTags,
   type CollectorDatabase,
 } from "@ao3-offsite/database";
+import { parseTagSearchHtml, parseTagWorksHtml, PoliteSourceClient, tagWorksUrl, type TagSearchResult } from "@ao3-offsite/scraper-core";
 
 export interface SourceUpdate {
   userAgent: string;
@@ -128,6 +132,13 @@ export interface ApiServices {
   fillGaps(sourceId: number, start: number, end: number, limit: number): Promise<FillResult>;
   getAutoFill(sourceId: number): Promise<AutoFillConfig>;
   updateAutoFill(sourceId: number, update: { enabled?: boolean | undefined; frontierStart?: number | undefined; batchSize?: number | undefined }): Promise<AutoFillConfig>;
+  searchTags(sourceId: number, query: string): Promise<TagSearchResult[]>;
+  searchTagsLocal(sourceId: number, query: string): Promise<unknown[]>;
+  listTagSubscriptions(sourceId: number): Promise<TagSubscription[]>;
+  createTagSubscription(sourceId: number, input: { tagName: string; tagSlug: string; tagType: TagType }): Promise<TagSubscription>;
+  updateTagSubscription(subscriptionId: number, update: { enabled?: boolean | undefined }): Promise<TagSubscription | null>;
+  deleteTagSubscription(subscriptionId: number): Promise<boolean>;
+  queueTagPage(subscriptionId: number): Promise<{ jobId: number | null; enqueued: number; page: number }>;
   statistics(): Promise<CollectorStatistics>;
 }
 
@@ -137,6 +148,7 @@ export class MariaDbApiServices implements ApiServices {
   private readonly exports: ExportQueueStore;
   private readonly events: EventLog;
   private readonly autoFill: AutoFillStore;
+  private readonly tagSubscriptions: TagSubscriptionStore;
 
   constructor(private readonly db: CollectorDatabase, private readonly exportRoot = "./data/exports") {
     this.collector = new CollectorStore(db);
@@ -144,6 +156,7 @@ export class MariaDbApiServices implements ApiServices {
     this.exports = new ExportQueueStore(db);
     this.events = new EventLog(db, { service: "api" });
     this.autoFill = new AutoFillStore(db);
+    this.tagSubscriptions = new TagSubscriptionStore(db);
   }
 
   async ready(): Promise<boolean> {
@@ -266,6 +279,100 @@ export class MariaDbApiServices implements ApiServices {
 
   updateAutoFill(sourceId: number, update: { enabled?: boolean | undefined; frontierStart?: number | undefined; batchSize?: number | undefined }): Promise<AutoFillConfig> {
     return this.autoFill.update(sourceId, update);
+  }
+
+  async searchTags(sourceId: number, query: string): Promise<TagSearchResult[]> {
+    if (!query.trim()) return [];
+    const source = (await this.db.select({
+      origin: sources.origin,
+      userAgent: sources.userAgent,
+      minimumDelayMs: sources.minimumDelayMs,
+      requestTimeoutMs: sources.requestTimeoutMs,
+      maximumResponseBytes: sources.maximumResponseBytes,
+    }).from(sources).where(eq(sources.id, sourceId)).limit(1))[0];
+    if (!source) return [];
+    const client = new PoliteSourceClient({
+      origin: source.origin,
+      userAgent: source.userAgent,
+      minimumDelayMs: source.minimumDelayMs,
+      timeoutMs: source.requestTimeoutMs,
+      maximumBodyBytes: source.maximumResponseBytes,
+      maximumAttempts: 2,
+    });
+    const url = new URL("/tags/search", source.origin);
+    url.searchParams.set("query", query);
+    const result = await client.fetchText(url);
+    return parseTagSearchHtml(result.body);
+  }
+
+  async searchTagsLocal(sourceId: number, query: string): Promise<unknown[]> {
+    const needle = `%${query.trim().toLowerCase()}%`;
+    if (!query.trim()) return [];
+    return this.db.select({
+      id: tags.id,
+      name: tags.name,
+      type: tags.type,
+      canonical: tags.canonical,
+    }).from(tags)
+      .where(and(
+        eq(tags.sourceId, sourceId),
+        or(like(sql`lower(${tags.name})`, needle), like(sql`lower(${tags.sourceTagId})`, needle)),
+      ))
+      .orderBy(desc(tags.id))
+      .limit(25)
+      .then((rows) => rows.map((row) => ({ ...row, slug: encodeURIComponent(row.name) })));
+  }
+
+  listTagSubscriptions(sourceId: number): Promise<TagSubscription[]> {
+    return this.tagSubscriptions.list(sourceId);
+  }
+
+  createTagSubscription(sourceId: number, input: { tagName: string; tagSlug: string; tagType: TagType }): Promise<TagSubscription> {
+    return this.tagSubscriptions.subscribe(sourceId, input);
+  }
+
+  async updateTagSubscription(subscriptionId: number, update: { enabled?: boolean | undefined }): Promise<TagSubscription | null> {
+    if (update.enabled !== undefined) await this.tagSubscriptions.setEnabled(subscriptionId, update.enabled);
+    return this.tagSubscriptions.get(subscriptionId);
+  }
+
+  async deleteTagSubscription(subscriptionId: number): Promise<boolean> {
+    const existing = await this.tagSubscriptions.get(subscriptionId);
+    if (!existing) return false;
+    await this.tagSubscriptions.unsubscribe(subscriptionId);
+    return true;
+  }
+
+  async queueTagPage(subscriptionId: number): Promise<{ jobId: number | null; enqueued: number; page: number }> {
+    const subscription = await this.tagSubscriptions.get(subscriptionId);
+    if (!subscription) throw new Error("Tag subscription not found");
+    const source = (await this.db.select({
+      origin: sources.origin,
+      userAgent: sources.userAgent,
+      minimumDelayMs: sources.minimumDelayMs,
+      requestTimeoutMs: sources.requestTimeoutMs,
+      maximumResponseBytes: sources.maximumResponseBytes,
+    }).from(sources).where(eq(sources.id, subscription.sourceId)).limit(1))[0];
+    if (!source) throw new Error("Source not found");
+    const client = new PoliteSourceClient({
+      origin: source.origin,
+      userAgent: source.userAgent,
+      minimumDelayMs: source.minimumDelayMs,
+      timeoutMs: source.requestTimeoutMs,
+      maximumBodyBytes: source.maximumResponseBytes,
+      maximumAttempts: 2,
+    });
+    const url = tagWorksUrl(source.origin, subscription.tagSlug, subscription.nextPage);
+    const result = await client.fetchText(url);
+    const refs = parseTagWorksHtml(result.body);
+    const fresh = await this.collector.filterUncollected(subscription.sourceId, refs.map((ref) => ref.sourceWorkId));
+    if (fresh.length === 0) {
+      await this.tagSubscriptions.recordRun(subscription.id, subscription.nextPage + 1, null);
+      return { jobId: null, enqueued: 0, page: subscription.nextPage };
+    }
+    const jobId = await this.collector.createExplicitIdsJob(subscription.sourceId, fresh);
+    await this.tagSubscriptions.recordRun(subscription.id, subscription.nextPage + 1, jobId);
+    return { jobId, enqueued: fresh.length, page: subscription.nextPage };
   }
 
   async createSource(input: SourceCreate): Promise<number> {

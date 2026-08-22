@@ -211,6 +211,88 @@ export function isRestrictedWorkPage(html: string): boolean {
   return /This work is only available to registered users/.test(html);
 }
 
+export interface TagSearchResult {
+  name: string;
+  /** Percent-encoded AO3 tag slug used in /tags/<slug>/works URLs, e.g. "M%2FM". */
+  slug: string;
+  type: TagType;
+  worksCount: number | null;
+}
+
+const searchHeadingType: Array<[RegExp, TagType]> = [
+  [/rating/i, "Rating"],
+  [/warning/i, "ArchiveWarning"],
+  [/categor/i, "Category"],
+  [/fandom/i, "Fandom"],
+  [/relationship/i, "Relationship"],
+  [/character/i, "Character"],
+  [/freeform|other tag/i, "Freeform"],
+];
+
+/**
+ * Parse AO3's tag search page (/tags/search?query=...). Results are grouped
+ * under headings like "Relationships" / "Fandoms", each row linking to its
+ * /tags/<slug>/works listing with a parenthesised usage count.
+ */
+export function parseTagSearchHtml(html: string): TagSearchResult[] {
+  const $ = load(html);
+  const results = new Map<string, TagSearchResult>();
+  $('a[href^="/tags/"]').each((_index, element) => {
+    const node = $(element);
+    const href = node.attr("href") ?? "";
+    const match = href.match(/^\/tags\/(.+)\/works$/);
+    if (!match) return;
+    const slug = match[1]!;
+    if (results.has(slug)) return;
+    const name = compactText(node.text()) || decodeURIComponent(slug);
+    const row = node.closest("li").length ? node.closest("li") : node.parent();
+    let worksCount: number | null = null;
+    if (row.length) {
+      const countMatch = compactText(row.text()).match(/\(([\d,]+)\)/);
+      if (countMatch) worksCount = integer(countMatch[1] ?? "");
+    }
+    const list = node.closest("ol, ul, table");
+    const headingText = list?.prev("h2, h3, h4").first().text() ?? "";
+    let type: TagType = "Freeform";
+    for (const [pattern, candidate] of searchHeadingType) {
+      if (pattern.test(headingText)) { type = candidate; break; }
+    }
+    results.set(slug, { name, slug, type, worksCount });
+  });
+  return [...results.values()];
+}
+
+export interface TagWorkRef {
+  sourceWorkId: string;
+  title: string;
+}
+
+/**
+ * Parse a tag's works listing page (/tags/<slug>/works) into work references.
+ * Each entry is an <li class="work blurb"> whose heading links to /works/<id>.
+ */
+export function parseTagWorksHtml(html: string): TagWorkRef[] {
+  const $ = load(html);
+  const refs: TagWorkRef[] = [];
+  $("li.work.blurb").each((_index, element) => {
+    const node = $(element);
+    const link = node.find('h4.heading a[href^="/works/"]').first();
+    const idMatch = (link.attr("href") ?? "").match(/^\/works\/(\d+)/);
+    if (!idMatch) return;
+    const sourceWorkId = idMatch[1]!;
+    const title = compactText(link.text()) || `Work ${sourceWorkId}`;
+    refs.push({ sourceWorkId, title });
+  });
+  return refs;
+}
+
+/** Build the paginated AO3 tag works listing URL for a (percent-encoded) slug. */
+export function tagWorksUrl(origin: string, slug: string, page: number): string {
+  const url = new URL(`/tags/${slug}/works`, origin);
+  if (page > 1) url.searchParams.set("page", String(page));
+  return url.toString();
+}
+
 export function parseEntireWorkHtml(html: string, options: ParseWorkOptions): TransferRecords {
   const sourceUrl = new URL(options.sourceUrl);
   const sourceWorkId = workIdFromUrl(options.sourceUrl);

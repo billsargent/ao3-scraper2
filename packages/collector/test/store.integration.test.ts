@@ -19,6 +19,7 @@ import {
   seriesWorks,
   sourceDailyUsage,
   sources,
+  tagSubscriptions,
   tags,
   workAuthors,
   works,
@@ -36,6 +37,7 @@ import { JobPlannerStore, JobPlannerWorker } from "../src/job-planner.js";
 import { WorkTaskProcessor } from "../src/processor.js";
 import { SourceBudgetStore } from "../src/source-budget-store.js";
 import { CollectorStore } from "../src/store.js";
+import { TagSubscriptionStore } from "../src/tag-subscriptions.js";
 import { TaskLeaseStore } from "../src/task-store.js";
 import { CollectorWorker } from "../src/worker.js";
 import type { EventLog } from "../src/event-log.js";
@@ -59,7 +61,7 @@ integration("CollectorStore with MariaDB", () => {
 
   beforeAll(async () => {
     ({ db, pool } = createDatabase(databaseUrl));
-    for (const table of [fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, exportRuns, works, collectionTasks, collectionJobs, sourceDailyUsage, sources]) {
+    for (const table of [tagSubscriptions, fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, exportRuns, works, collectionTasks, collectionJobs, sourceDailyUsage, sources]) {
       await db.delete(table);
     }
     sourceId = (await db.insert(sources).values({
@@ -73,7 +75,7 @@ integration("CollectorStore with MariaDB", () => {
   });
 
   beforeEach(async () => {
-    for (const table of [fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, exportRuns, works, collectionTasks, collectionJobs, sourceDailyUsage]) {
+    for (const table of [tagSubscriptions, fetchSnapshots, observations, seriesWorks, series, workTags, tags, chapters, workAuthors, authors, exportRuns, works, collectionTasks, collectionJobs, sourceDailyUsage]) {
       await db.delete(table);
     }
     await db.update(sources).set({
@@ -592,6 +594,54 @@ integration("CollectorStore with MariaDB", () => {
     expect(afterRun.lastJobId).toBe(jobId);
     expect(afterRun.frontierStart).toBe(3);
     expect(afterRun.lastRunAt).not.toBeNull();
+  }, 15_000);
+
+  it("subscribes, lists, toggles and records runs for tag subscriptions", async () => {
+    const tags = new TagSubscriptionStore(db);
+    const created = await tags.subscribe(sourceId, { tagName: "M/M", tagSlug: "M%2FM", tagType: "Category" });
+    expect(created).toMatchObject({ tagName: "M/M", tagSlug: "M%2FM", tagType: "Category", nextPage: 1, enabled: true });
+
+    // Re-subscribing the same slug updates instead of duplicating.
+    const updated = await tags.subscribe(sourceId, { tagName: "M/M", tagSlug: "M%2FM", tagType: "Category" });
+    expect(updated.id).toBe(created.id);
+    expect(await tags.list(sourceId)).toHaveLength(1);
+
+    await tags.subscribe(sourceId, { tagName: "Harry Potter", tagSlug: "Harry%20Potter", tagType: "Fandom" });
+    expect(await tags.list(sourceId)).toHaveLength(2);
+    expect((await tags.listEnabled(sourceId)).map((row) => row.tagSlug)).toEqual(["M%2FM", "Harry%20Potter"]);
+
+    await tags.setEnabled(created.id, false);
+    expect((await tags.get(created.id))?.enabled).toBe(false);
+    expect((await tags.listEnabled(sourceId)).map((row) => row.tagSlug)).toEqual(["Harry%20Potter"]);
+
+    const jobId = await store.createExplicitIdsJob(sourceId, ["1", "2"]);
+    await tags.recordRun(created.id, 2, jobId);
+    const afterRun = await tags.get(created.id);
+    expect(afterRun?.nextPage).toBe(2);
+    expect(afterRun?.lastJobId).toBe(jobId);
+    expect(afterRun?.lastRunAt).not.toBeNull();
+
+    await tags.unsubscribe(created.id);
+    expect(await tags.list(sourceId)).toHaveLength(1);
+  }, 15_000);
+
+  it("filters discovered IDs to those not collected, gone or already queued", async () => {
+    await db.insert(works).values({
+      sourceId, sourceWorkId: "1", sourceUrl: "https://example/1", title: "One",
+      summaryHtml: "", notesHtml: "", endNotesHtml: "", languageCode: "en",
+      complete: true, restricted: false, contentHash: `sha256:${"b".repeat(64)}`,
+      firstSeenAt: new Date(), lastSeenAt: new Date(),
+    });
+    await db.insert(observations).values({
+      sourceId, sourceWorkId: "2", observedAt: new Date(), availability: "not_found", httpStatus: 404, sourceUpdatedAt: null, contentHash: null,
+    });
+    const queuedJob = await store.createExplicitIdsJob(sourceId, ["3"]);
+    await store.enqueueWorkIds(queuedJob, ["3"]);
+    await store.createExplicitIdsJob(sourceId, ["4", "5", "6"]);
+
+    const kept = await store.filterUncollected(sourceId, ["1", "2", "3", "4", "5", "6", "7", "8"]);
+    expect(kept).toEqual(["7", "8"]);
+    expect(await store.filterUncollected(sourceId, [])).toEqual([]);
   }, 15_000);
 
   it("requeues expired planning leases and reports stalled running jobs", async () => {
