@@ -81,6 +81,7 @@ export interface DiagnosticsSnapshot {
   jobs: unknown[];
   failures: unknown[];
   logs: WorkerEventRow[];
+  autoFill?: AutoFillConfig | null;
 }
 
 export type SettingsUpdate = {
@@ -234,6 +235,8 @@ export class MariaDbApiServices implements ApiServices {
       this.events.list("all", 200, 0),
       this.getSystemInfo(),
     ]);
+    const firstSourceId = (sources[0] as { id?: number } | undefined)?.id;
+    const autoFill = firstSourceId === undefined ? null : await this.autoFill.get(firstSourceId);
     return {
       generatedAt: new Date().toISOString(),
       system,
@@ -241,6 +244,7 @@ export class MariaDbApiServices implements ApiServices {
       jobs,
       failures: failures.items,
       logs,
+      autoFill,
     };
   }
 

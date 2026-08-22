@@ -307,6 +307,7 @@ export interface DiagnosticsBundle {
   jobs: CollectionJob[];
   failures: FailureRecord[];
   logs: WorkerEvent[];
+  autoFill?: AutoFillConfig | null;
 }
 
 export interface GapCoverage {
