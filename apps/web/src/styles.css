@@ -31,3 +31,8 @@
 .service-chip.export{background:#173a31;color:#55d9a8}
 .service-chip.api{background:#3a2621;color:#eeb44c}
 .service-chip.system{background:#242b3a;color:#9aa3b8}
+.hint-list{display:grid;gap:10px}
+.hint-list h4{margin:0;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:#a58cff}
+.hint-list p,.hint-list li{color:#8b92a0;line-height:1.55;font-size:.85rem}
+.hint-list ol,.hint-list ul{margin:0;padding-left:1.15rem;display:grid;gap:5px}
+.hint-list code{color:#4fcfe1}

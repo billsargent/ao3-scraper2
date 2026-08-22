@@ -2,6 +2,7 @@ import type { Comment, Kudo, Observation, TransferRecords } from "@ao3-offsite/c
 import {
   ParseError,
   SourceRequestError,
+  isRestrictedWorkPage,
   nextPageUrl,
   parseBookmarksHtml,
   parseCommentsHtml,
@@ -10,6 +11,7 @@ import {
   type FetchResult,
 } from "@ao3-offsite/scraper-core";
 import type { StoredBlob } from "./blob-store.js";
+import { describeError } from "./job-planner.js";
 
 export const PARSER_VERSION = "ao3-entire-work-v1";
 
@@ -80,6 +82,29 @@ export class WorkTaskProcessor {
     try {
       const fetched = await this.fetcher.fetchText(url);
       responseBytes = Buffer.byteLength(fetched.body, "utf8");
+      if (isRestrictedWorkPage(fetched.body)) {
+        // AO3 returns HTTP 200 with a "New Session" login interstitial for
+        // works restricted to registered users. They cannot be collected, so
+        // treat them exactly like a 404 (availability not_found): counted as
+        // skipped, excluded from future planning, no raw page archived.
+        await this.store.recordSnapshot({
+          sourceId: this.source.id,
+          sourceWorkId,
+          url: fetched.url,
+          httpStatus: fetched.status,
+          fetchedAt: new Date(fetched.fetchedAt),
+          attempts: fetched.attempts,
+        });
+        await this.store.persistAvailability(this.source.id, {
+          sourceWorkId,
+          observedAt: new Date().toISOString(),
+          availability: "not_found",
+          httpStatus: fetched.status,
+          sourceUpdatedAt: null,
+          contentHash: null,
+        });
+        return { status: "not_found", code: "restricted_work", message: "This work is only available to registered users", responseBytes };
+      }
       const blob = await this.blobs.putHtml(fetched.body);
       await this.store.recordSnapshot({
         sourceId: this.source.id,
@@ -100,7 +125,7 @@ export class WorkTaskProcessor {
     } catch (error) {
       if (error instanceof SourceRequestError) return this.sourceFailure(sourceWorkId, url, error);
       if (error instanceof ParseError) return { status: "terminal_failed", code: "parse_failed", message: error.message, responseBytes };
-      return { status: "retryable_failed", code: "unexpected", message: error instanceof Error ? error.message : String(error), responseBytes };
+      return { status: "retryable_failed", code: "unexpected", message: describeError(error), responseBytes };
     }
   }
 

@@ -181,8 +181,8 @@ export class JobPlannerWorker {
         await this.events?.record({
           level: "error",
           event: "planner_loop_error",
-          message: error instanceof Error ? error.message : String(error),
-          context: { error: error instanceof Error ? error.stack ?? error.message : String(error) },
+          message: `Planner loop error: ${describeError(error)}`,
+          context: { error: describeError(error), stack: error instanceof Error ? error.stack : undefined },
         });
         if (!signal.aborted) await new Promise((resolve) => setTimeout(resolve, 2_000));
       }

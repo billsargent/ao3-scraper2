@@ -272,7 +272,16 @@ export class CollectorStore {
       }
       await tx.delete(workAuthors).where(eq(workAuthors.workId, work.id));
       if (records.workAuthors.length > 0) {
-        await tx.insert(workAuthors).values(records.workAuthors.map((relation) => ({
+        // Some AO3 pages (e.g. multi-chapter view_full_work views, which repeat
+        // the byline per chapter) can list the same author more than once. The
+        // work_authors primary key is (work_id, author_id), so dedupe to one row
+        // per author (keeping the lowest position) before inserting.
+        const uniqueAuthors = new Map<string, { sourceAuthorId: string; position: number }>();
+        for (const relation of records.workAuthors) {
+          const existing = uniqueAuthors.get(relation.sourceAuthorId);
+          if (!existing || relation.position < existing.position) uniqueAuthors.set(relation.sourceAuthorId, relation);
+        }
+        await tx.insert(workAuthors).values([...uniqueAuthors.values()].map((relation) => ({
           workId: work.id,
           authorId: authorIds.get(relation.sourceAuthorId) ?? (() => { throw new Error(`Missing author ${relation.sourceAuthorId}`); })(),
           position: relation.position,

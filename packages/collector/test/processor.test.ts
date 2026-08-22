@@ -60,6 +60,26 @@ describe("WorkTaskProcessor", () => {
     expect(blobs.putHtml).not.toHaveBeenCalled();
   });
 
+  it("classifies a restricted (logged-out interstitial) work as not-found without storing the page", async () => {
+    const { fetcher, blobs, store } = dependencies();
+    fetcher.fetchText.mockResolvedValue({
+      url: "https://archiveofourown.org/works/123?view_full_work=true", status: 200,
+      body: "<html><head><title>New Session | Archive of Our Own</title></head><body><p class='message'>This work is only available to registered users of the Archive.</p></body></html>",
+      fetchedAt: "2026-08-17T12:00:00.000Z", attempts: 1, responseHeaders: { "content-type": "text/html" },
+    });
+    const processor = new WorkTaskProcessor(
+      { id: 1, origin: "https://archiveofourown.org", includeAdult: false },
+      fetcher, blobs, store,
+    );
+
+    await expect(processor.process("123")).resolves.toMatchObject({
+      status: "not_found", code: "restricted_work",
+    });
+    expect(blobs.putHtml).not.toHaveBeenCalled();
+    expect(store.persistCapturedWork).not.toHaveBeenCalled();
+    expect(store.persistAvailability).toHaveBeenCalledWith(1, expect.objectContaining({ availability: "not_found", httpStatus: 200 }));
+  });
+
   it("retains the raw snapshot when parsing fails", async () => {
     const { fetcher, blobs, store } = dependencies();
     fetcher.fetchText.mockResolvedValue({

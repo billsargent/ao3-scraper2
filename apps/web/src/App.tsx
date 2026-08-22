@@ -263,6 +263,28 @@ function AutoFill({ source, onNavigate }: { source: Source | undefined; onNaviga
         </> : <Empty title="No auto-fill configured" text="Open the auto-fill panel to enable automatic gap filling." />}
       </Panel>
     </div>
+    <Panel title="How auto-fill works — set it and walk away">
+      <div className="hint-list">
+        <h4>How it works</h4>
+        <p className="muted">Every ~10 minutes, while the source is enabled and not paused, the collector worker:</p>
+        <ol>
+          <li>Scans forward from the <b>frontier</b> in a rolling window (batch size × 100 IDs).</li>
+          <li>Finds only the works that are <b>missing</b> — not yet collected, not already queued, not known gone (404/restricted).</li>
+          <li>Queues them as one small explicit-ID job — no planning pass needed.</li>
+          <li>Advances the frontier, so collected ranges are never re-scanned.</li>
+        </ol>
+        <p className="muted">It stays out of its own way: it won't create a new job while the previous auto-job is still queued/running, and it stops when the pending queue exceeds roughly 2× the batch size. It never re-fetches works you already have.</p>
+        <h4>Best practices for hands-off operation</h4>
+        <ul>
+          <li>Turn on automatic fill (batch 200 is a good default) and leave it enabled — it keeps topping up coverage with small jobs, indefinitely.</li>
+          <li><b>Avoid giant id_range jobs</b> (tens of thousands of IDs). They progress slowly and stress the database; auto-fill's small jobs run cleanly unattended.</li>
+          <li>Use “Check coverage / Queue missing” above to fill a specific range once; auto-fill handles the rest.</li>
+          <li>Keep the <b>source enabled</b>. Pausing the source — or any individual job — halts work. Job pause is separate from source pause: resume each job individually.</li>
+          <li>Keep a polite <b>minimum delay</b> (e.g. 10 s) and a <b>daily request budget</b> (e.g. 250) so AO3 doesn't rate-limit you.</li>
+          <li>Confirm it's running: Debug log → Worker logs shows <code>auto_fill_created</code> events.</li>
+        </ul>
+      </div>
+    </Panel>
   </>;
 }
 
@@ -293,6 +315,7 @@ function JobForm({ source, onClose }: { source: Source; onClose: () => void }) {
     {planEtaMs > 3600_000 && <p className="muted">≈ {formatLongDuration(planEtaMs)} of planning first (single planner worker).</p>}
     {pace && collectEtaMs > 7 * 86_400_000 && <p className={collectEtaMs > 365 * 86_400_000 ? "form-error" : "form-warning"}>This job {collectEtaMs > 365 * 86_400_000 ? "would take about" : "will take about"} <b>{formatLongDuration(collectEtaMs)}</b> at your current pace — pick a much smaller range near the IDs you want.</p>}
     {count > 10_000_000 && <p className="muted">A single job covers at most 10,000,000 IDs. High work IDs like AO3's current ~91M are supported — start closer to them (e.g. start near 90,800,000) or create multiple jobs.</p>}
+    <p className="muted">For broad coverage without babysitting, prefer turning on <b>Auto-fill</b> instead of one giant range — it queues small, unattended jobs as it scans forward.</p>
     {mutation.error && <p className="form-error">{mutation.error.message}</p>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancel</button><button className="primary" disabled={mutation.isPending || count < 1 || count > 10_000_000}>{mutation.isPending ? "Creating…" : "Create durable job"}</button></div>
   </form></div>;

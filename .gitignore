@@ -4,6 +4,7 @@ dist-types/
 tmp/
 datasets/
 data/
+data-prod/
 test-results/
 playwright-report/
 *.tsbuildinfo
@@ -12,3 +13,7 @@ playwright-report/
 .env.production
 .env.otw-private
 backups/
+/*.sql.gz
+/*.tar.gz
+/checksums.sha256
+/metadata.txt

@@ -200,6 +200,17 @@ export interface ParseWorkOptions {
   capturedAt: string;
 }
 
+/**
+ * True when the fetched body is AO3's logged-out interstitial for a work that
+ * is restricted to registered users ("This work is only available to
+ * registered users of the Archive"). Such works cannot be collected without
+ * authentication, so the collector treats them like not-found (skipped) rather
+ * than as parse failures.
+ */
+export function isRestrictedWorkPage(html: string): boolean {
+  return /This work is only available to registered users/.test(html);
+}
+
 export function parseEntireWorkHtml(html: string, options: ParseWorkOptions): TransferRecords {
   const sourceUrl = new URL(options.sourceUrl);
   const sourceWorkId = workIdFromUrl(options.sourceUrl);
